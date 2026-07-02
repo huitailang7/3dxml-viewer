@@ -12,6 +12,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
 <link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
 <style>
 :root {
   --bg: #1a1a2e;
@@ -972,30 +973,7 @@ console.log('  🌳 点击左上角查看结构树');
 console.log('  👆 单指旋转 | 双指缩放/平移 | 双击聚焦零件');
 console.log('  ⌨  快捷键: F=适应视图 T=结构树 Esc=关闭面板 0=取消选中');
 console.log('  💡 如果模型无几何体，请同时多选 .3dxml 和 .3DRep 文件');
-// ════════════════════════════ PWA 安装 ════════════════════════════
-// 内联 Manifest（使浏览器识别为可安装 App）
-const manifest = {
-  name: '3DXML 查看器',
-  short_name: '3DXML',
-  description: '手机端 CATIA 3DXML 模型查看器',
-  start_url: location.href,
-  display: 'standalone',
-  orientation: 'any',
-  background_color: '#1a1a2e',
-  theme_color: '#1a1a2e',
-  icons: [
-    { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
-    { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }
-  ]
-};
-const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-const manifestUrl = URL.createObjectURL(blob);
-const link = document.createElement('link');
-link.rel = 'manifest';
-link.href = manifestUrl;
-document.head.appendChild(link);
-
-// 内联 Service Worker（缓存核心资源，允许离线打开）
+// ════════════════════════════ Service Worker（离线缓存）═══════════════════════════
 if ('serviceWorker' in navigator) {
   const swCode = `
 const CACHE = '3dxml-viewer-v1';
