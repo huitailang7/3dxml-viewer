@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>3DXML 查看器</title>
+
+<!-- PWA / 添加到主屏幕 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="3DXML 查看器">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1a1a2e">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231a1a2e' width='100' height='100' rx='20'/><text x='50' y='68' font-size='60' text-anchor='middle' fill='%23e94560'>3D</text></svg>">
+<style>
+:root {
+  --bg: #1a1a2e;
+  --panel: #16213e;
+  --accent: #e94560;
+  --text: #eee;
+  --text2: #aaa;
+  --safe-bottom: env(safe-area-inset-bottom, 12px);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+#canvas { position:fixed; top:0; left:0; width:100%; height:100%; z-index:1; }
+
+/* 顶栏 */
+#toolbar { position:fixed; top:0; left:0; right:0; z-index:10; display:flex; align-items:center; padding:10px 12px; gap:10px; background:linear-gradient(180deg,rgba(22,33,62,0.95),rgba(22,33,62,0)); pointer-events:none; }
+#toolbar > * { pointer-events:auto; }
+#toolbar button { width:40px; height:40px; border-radius:12px; border:none; background:var(--panel); color:var(--text); font-size:18px; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.3); transition:transform 0.15s; }
+#toolbar button:active { transform:scale(0.92); }
+#toolbar .title { flex:1; color:var(--text); font-size:15px; font-weight:600; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-shadow:0 1px 4px rgba(0,0,0,0.5); }
+#toolbar .hint { font-size:11px; color:var(--text2); }
+
+/* 底部手势提示 */
+#gesture-hint { position:fixed; bottom:calc(var(--safe-bottom) + 16px); left:50%; transform:translateX(-50%); z-index:10; color:var(--text2); font-size:11px; background:rgba(22,33,62,0.85); padding:8px 16px; border-radius:20px; pointer-events:none; transition:opacity 0.8s; }
+
+/* 加载画面 */
+#loading { position:fixed; top:0; left:0; width:100%; height:100%; z-index:20; display:flex; flex-direction:column; align-items:center; justify-content:center; background:rgba(0,0,0,0.7); }
+#loading.hidden { display:none; }
+.spinner { width:48px; height:48px; border:3px solid rgba(255,255,255,0.15); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loading p { margin-top:16px; color:var(--text); font-size:14px; }
+
+/* 结构树侧边栏 */
+#tree-panel { position:fixed; top:0; left:0; width:300px; max-width:80vw; height:100%; z-index:15; background:var(--panel); transform:translateX(-100%); transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); display:flex; flex-direction:column; box-shadow:2px 0 16px rgba(0,0,0,0.4); }
+#tree-panel.open { transform:translateX(0); }
+#tree-panel .head { padding:16px 14px 12px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; gap:8px; flex-shrink:0; }
+#tree-panel .head span { flex:1; color:var(--text); font-size:15px; font-weight:600; }
+#tree-panel .head button { width:32px; height:32px; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:var(--text); font-size:16px; cursor:pointer; }
+#tree-list { flex:1; overflow-y:auto; padding:8px 0; -webkit-overflow-scrolling:touch; }
+#tree-list::-webkit-scrollbar { width:3px; }
+#tree-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:3px; }
+.tree-node { display:flex; align-items:center; padding:10px 14px; cursor:pointer; border-left:3px solid transparent; transition:background 0.15s; user-select:none; -webkit-user-select:none; }
+.tree-node:active { background:rgba(255,255,255,0.06); }
+.tree-node.selected { background:rgba(233,69,96,0.15); border-left-color:var(--accent); }
+.tree-node .icon { width:22px; height:22px; margin-right:8px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+.tree-node .name { color:var(--text); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tree-node .arrow { width:20px; height:20px; margin-right:4px; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text2); transition:transform 0.2s; flex-shrink:0; }
+.tree-node .arrow.expanded { transform:rotate(90deg); }
+.tree-children { overflow:hidden; transition:max-height 0.25s ease; }
+.tree-children.collapsed { max-height:0 !important; }
+
+/* 遮罩 */
+#overlay { position:fixed; top:0; left:0; width:100%; height:100%; z-index:14; background:rgba(0,0,0,0.4); display:none; }
+#overlay.show { display:block; }
+</style>
+</head>
+<body>
+
+<!-- 3D画布 -->
+<div id="canvas"></div>
+
+<!-- 顶栏 -->
+<div id="toolbar">
+  <button id="btn-tree" title="结构树">🌳</button>
+  <span class="title" id="title-text">3DXML 查看器</span>
+  <button id="btn-open" title="打开文件">📂</button>
+  <button id="btn-fit" title="适应视图">🔍</button>
+</div>
+
+<!-- 加载画面 -->
+<div id="loading" class="hidden">
+  <div class="spinner"></div>
+  <p id="loading-text">加载中...</p>
+</div>
+
+<!-- 底部手势提示 -->
+<div id="gesture-hint">👆 单指旋转 &nbsp;👆👆 双指缩放/平移 &nbsp;👆👆 双击聚焦</div>
+
+<!-- 结构树遮罩 -->
+<div id="overlay"></div>
+
+<!-- 结构树侧边栏 -->
+<div id="tree-panel">
+  <div class="head">
+    <span>📋 结构树</span>
+    <button id="btn-tree-close">✕</button>
+  </div>
+  <div id="tree-list"></div>
+</div>
+
+<!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
+<input type="file" id="file-input" accept=".3dxml,.3DXML,.3DRep,.3drep" multiple style="display:none">
+
+<!-- JSZip -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+<!-- Three.js Import Map -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ═══════════════════════════════════════════════════
+// DOM 引用
+// ═══════════════════════════════════════════════════
+const canvasEl = document.getElementById('canvas');
+const loadingEl = document.getElementById('loading');
+const loadingText = document.getElementById('loading-text');
+const titleText = document.getElementById('title-text');
+const treeList = document.getElementById('tree-list');
+const treePanel = document.getElementById('tree-panel');
+const overlay = document.getElementById('overlay');
+const gestureHint = document.getElementById('gesture-hint');
+const fileInput = document.getElementById('file-input');
+
+// ═══════════════════════════════════════════════════
+// Three.js 场景初始化
+// ═══════════════════════════════════════════════════
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+canvasEl.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 500000);
+camera.position.set(15, 10, 18);  // 标准 Three.js Y-up 视角
+camera.up.set(0, 1, 0);           // 标准 Y-up
+
+// OrbitControls（触控优化，距离限制动态调整）
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.12;
+controls.target.set(0, 0, 0);
+controls.minDistance = 0.01;
+controls.maxDistance = Infinity;
+controls.maxPolarAngle = Math.PI;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+controls.update();
+
+// 灯光
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 0.6);
+scene.add(hemiLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(20, 30, 20);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.set(1024, 1024);
+dirLight.shadow.camera.near = 0.5;
+dirLight.shadow.camera.far = 200000;
+dirLight.shadow.camera.left = -50;
+dirLight.shadow.camera.right = 50;
+dirLight.shadow.camera.top = 50;
+dirLight.shadow.camera.bottom = -50;
+scene.add(dirLight);
+
+// 地面网格
+const gridHelper = new THREE.GridHelper(40, 40, 0x333355, 0x222244);
+scene.add(gridHelper);
+
+// 根节点
+// 根节点：CATIA Z-up → Three.js Y-up（绕X轴-90°，只转一次）
+const rootGroup = new THREE.Group();
+rootGroup.name = '__root__';
+rootGroup.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+scene.add(rootGroup);
+
+// 选中高亮材质
+const highlightMaterial = new THREE.MeshBasicMaterial({
+  color: 0xe94560,
+  transparent: true,
+  opacity: 0.3,
+  depthTest: true,
+  depthWrite: false,
+  side: THREE.DoubleSide
+});
+
+// 全局状态
+let modelTreeData = null;
+let entityMap = new Map();     // tree node id → THREE.Object3D
+let selectedNodeId = null;
+let highlightMeshes = [];
+
+// ═══════════════════════════════════════════════════
+// 3DXML 解析器
+// ═══════════════════════════════════════════════════
+class ThreeDXMLParser {
+  constructor() {
+    this.treeDict = {};       // id → node info
+    this.repDict = {};        // id → rep info
+    this.repFileMap = {};     // rep filename → rep file content
+    this.modelRoot = 0;
+    this.fileName = '';
+  }
+
+  // 检测文件是否为 ZIP 格式（PK 头）
+  async _readFileAsBuffer(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(new Uint8Array(reader.result));
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  _isZip(bytes) {
+    return bytes.length >= 2 && bytes[0] === 0x50 && bytes[1] === 0x4B;
+  }
+
+  async load(files) {
+    // files 可以是单个 File（ZIP 或 XML）或 File 数组
+    const fileList = Array.isArray(files) ? files : [files];
+    if (fileList.length === 0) throw new Error('未选择文件');
+
+    showLoading(true);
+
+    // 分类文件：找到 .3dxml 和所有 .3DRep
+    let xmlFile = null;
+    const repFiles = []; // { name, file }
+
+    for (const f of fileList) {
+      const name = f.name;
+      const upper = name.toUpperCase();
+      if (upper.endsWith('.3DXML')) {
+        xmlFile = f;
+      } else if (upper.endsWith('.3DREP')) {
+        repFiles.push({ name: name.split('/').pop().split('\\').pop(), file: f });
+      }
+    }
+
+    if (!xmlFile) throw new Error('未找到 .3dxml 文件，请同时选择 .3dxml 和 .3DRep 文件');
+
+    this.fileName = xmlFile.name;
+
+    // 读取第一个文件的前2字节判断是否为ZIP
+    const header = await this._readFileAsBuffer(xmlFile);
+    const isZip = this._isZip(header);
+
+    if (isZip) {
+      // ──── ZIP 格式：内部包含 .3dxml + .3DRep ────
+      loadingText.textContent = '正在解压 3DXML (ZIP)...';
+      const zip = await JSZip.loadAsync(xmlFile);
+      const filePaths = Object.keys(zip.files).filter(f => !zip.files[f].dir);
+      let xmlContent = null;
+      const repContents = {};
+
+      for (const fpath of filePaths) {
+        const upper = fpath.toUpperCase();
+        const base = fpath.split('/').pop();
+        if (upper.endsWith('.3DXML')) {
+          xmlContent = await zip.files[fpath].async('text');
+        } else if (upper.endsWith('.3DREP')) {
+          repContents[base] = await zip.files[fpath].async('text');
+        }
+      }
+      if (!xmlContent) throw new Error('ZIP 中未找到 .3dxml 文件');
+      this.repFileMap = repContents;
+      loadingText.textContent = '正在解析模型结构...';
+      this.parseXML(xmlContent);
+
+    } else {
+      // ──── 纯 XML 格式：.3dxml + 独立 .3DRep 文件 ────
+      loadingText.textContent = '正在解析 XML 结构...';
+      const decoder = new TextDecoder();
+      const xmlContent = decoder.decode(header);
+      this.repFileMap = {};
+
+      // 读取所有 3DRep 文件
+      if (repFiles.length > 0) {
+        loadingText.textContent = '正在读取 3DRep 几何文件...';
+        for (const { name, file } of repFiles) {
+          const buf = await this._readFileAsBuffer(file);
+          this.repFileMap[name] = new TextDecoder().decode(buf);
+        }
+      }
+
+      this.parseXML(xmlContent);
+      if (Object.keys(this.repFileMap).length === 0) {
+        console.warn('⚠️ 未找到 3DRep 文件，模型将只有结构树无几何体');
+        console.warn('   请同时选择 .3dxml 和 .3DRep 文件');
+      }
+    }
+
+    loadingText.textContent = '正在构建模型...';
+    return this.buildTree();
+  }
+
+  parseXML(xmlText) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, 'text/xml');
+    const root = doc.documentElement;
+    const productStructure = root.getElementsByTagName('ProductStructure')[0];
+    if (!productStructure) throw new Error('无效的 3DXML：缺少 ProductStructure 节点');
+
+    this.modelRoot = parseInt(productStructure.getAttribute('root'));
+    const children = productStructure.children;
+
+    for (const el of children) {
+      const type = el.getAttribute('xsi:type')
+        || el.getAttributeNS('http://www.w3.org/2001/XMLSchema-instance', 'type')
+        || (el.localName || el.tagName).replace(/^.*:/, '');
+
+      if (type === 'Reference3DType' || type === 'Reference3D') {
+        const id = parseInt(el.getAttribute('id'));
+        const name = el.getAttribute('name') || '';
+        this.treeDict[id] = {
+          id, name, type: 'assembly',
+          children: [], childMatrices: [],
+          isLeaf: false, leafParts: []
+        };
+      } else if (type === 'ReferenceRepType' || type === 'ReferenceRep') {
+        const id = parseInt(el.getAttribute('id'));
+        const name = el.getAttribute('name') || '';
+        const associatedFile = el.getAttribute('associatedFile') || '';
+        const fileName = associatedFile.split(':').pop();
+        this.repDict[id] = { id, name, fileName };
+      } else if (type === 'InstanceRepType' || type === 'InstanceRep') {
+        const els = el.getElementsByTagName('*');
+        const aggregatedBy = parseInt(els[0]?.textContent);
+        const instanceOf = parseInt(els[1]?.textContent);
+        if (this.treeDict[aggregatedBy] && this.repDict[instanceOf]) {
+          this.treeDict[aggregatedBy].isLeaf = true;
+          this.treeDict[aggregatedBy].leafParts.push(this.repDict[instanceOf]);
+        }
+      } else if (type === 'Instance3DType' || type === 'Instance3D') {
+        const els = el.getElementsByTagName('*');
+        const aggregatedBy = parseInt(els[0]?.textContent);
+        const instanceOf = parseInt(els[1]?.textContent);
+        const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
+        if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
+          this.treeDict[aggregatedBy].children.push(this.treeDict[instanceOf]);
+          this.treeDict[aggregatedBy].childMatrices.push(matrixStr);
+        }
+      }
+    }
+  }
+
+  buildTree() {
+    if (!this.treeDict[this.modelRoot]) {
+      throw new Error('找不到模型根节点 id=' + this.modelRoot);
+    }
+    return this.treeDict[this.modelRoot];
+  }
+
+  // 参考 Unity ModelTree.cs 的实现方式：
+  // 3DXML 的 12 值矩阵 = 行主序 4×3，前三行分别为 X/Y/Z 轴方向 + 平移
+  // Unity 左手法则对 X 取反；Three.js 右手法则（同CATIA）不取反
+  parseMatrix(matrixStr) {
+    const values = matrixStr.trim().split(/\s+/).map(parseFloat);
+    if (values.length < 12) return new THREE.Matrix4().identity();
+    const m = values;
+
+    // 直接从矩阵的行提取轴向量（参照Unity LookRotation逻辑，但不去反X）
+    // Row 1 (m3,m4,m5) = Y轴方向（CATIA中的"上"）
+    // Row 2 (m6,m7,m8) = Z轴方向（CATIA中的"前"）
+    const right   = new THREE.Vector3( m[0],  m[1],  m[2]).normalize();
+    const up      = new THREE.Vector3( m[3],  m[4],  m[5]).normalize();
+    const forward = new THREE.Vector3( m[6],  m[7],  m[8]).normalize();
+
+    // 施密特正交化确保三个轴严格正交（与Unity LookRotation内部行为一致）
+    const correctedRight   = new THREE.Vector3().crossVectors(up, forward).normalize();
+    const correctedUp      = new THREE.Vector3().crossVectors(forward, correctedRight).normalize();
+    const correctedForward = new THREE.Vector3().crossVectors(correctedRight, correctedUp).normalize();
+
+    const mat4 = new THREE.Matrix4();
+    mat4.makeBasis(correctedRight, correctedUp, correctedForward);
+    mat4.setPosition(m[9], m[10], m[11]);
+    return mat4;
+  }
+
+  // 根据 id 生成确定性颜色（当 3DRep 没有 RGB 颜色时使用，类似 RepPart.cs 中的随机色逻辑）
+  _makeDefaultColor(name) {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = ((hash << 5) - hash) + name.charCodeAt(i) | 0;
+    const H = ((hash & 0xFFFF) / 0xFFFF + 0.618033988749895) % 1.0;
+    const S = 0.25 + 0.25 * (((hash >> 16) & 0xFFFF) / 0xFFFF);
+    const V = 0.55 + 0.35 * (((hash >> 8) & 0xFFFF) / 0xFFFF);
+    const c = new THREE.Color().setHSL(H, S, V);
+    return [c.r, c.g, c.b, 1.0];
+  }
+
+  parse3DRep(fileName) {
+    const content = this.repFileMap[fileName];
+    if (!content) return [];
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(content, 'text/xml');
+
+    // 结构: XMLRepresentation → Root → Rep(s)
+    const rootEl = doc.documentElement.children[0]; // <Root>
+    if (!rootEl) { console.warn('3DRep 无 Root 元素: ' + fileName); return []; }
+    const repEls = rootEl.children; // <Rep> elements
+    const instances = [];
+    for (const repEl of repEls) {
+      const tag = repEl.tagName;
+      if (tag !== 'Rep' && !tag.endsWith(':Rep')) continue;
+
+      // Faces 和 VertexBuffer：按标签名查找（不依赖顺序，兼容命名空间）
+      let facesEl = null, vertexBufEl = null;
+      for (const child of repEl.children) {
+        const t = child.tagName;
+        if (t === 'Faces' || t.endsWith(':Faces')) facesEl = child;
+        else if (t === 'VertexBuffer' || t.endsWith(':VertexBuffer')) vertexBufEl = child;
+      }
+      if (!facesEl || !vertexBufEl) continue;
+
+      // 解析面片
+      const colorRanges = [];
+      const allTriangles = [];
+      let oldColor = null;
+      const defaultColor = this._makeDefaultColor(fileName);
+
+      for (const faceEl of facesEl.children) {
+        const triStr = faceEl.getAttribute('triangles') || '';
+        const indices = triStr.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+        if (indices.length === 0) continue;
+
+        // Color 元素路径: Face → SurfaceAttributes → Color
+        let rgba = null;
+        try {
+          let surfaceAttr = null, colorEl = null;
+          for (const child of faceEl.children) {
+            const t = child.tagName;
+            if (t === 'SurfaceAttributes' || t.endsWith(':SurfaceAttributes')) surfaceAttr = child;
+          }
+          if (surfaceAttr) {
+            for (const child of surfaceAttr.children) {
+              const t = child.tagName;
+              if (t === 'Color' || t.endsWith(':Color')) { colorEl = child; break; }
+            }
+          }
+          if (colorEl) {
+            const rAttr = colorEl.getAttribute('red');
+            const gAttr = colorEl.getAttribute('green');
+            const bAttr = colorEl.getAttribute('blue');
+            const aAttr = colorEl.getAttribute('alpha');
+            // 如果 RGB 缺失（某些转换器只写alpha），用默认色
+            if (rAttr !== null && gAttr !== null && bAttr !== null) {
+              const r = parseFloat(rAttr);
+              const g = parseFloat(gAttr);
+              const b = parseFloat(bAttr);
+              const a = parseFloat(aAttr || '1');
+              if (!isNaN(r) && !isNaN(g) && !isNaN(b) && !isNaN(a)) {
+                rgba = [r, g, b, a];
+              }
+            } else {
+              // 仅 alpha 已知，RGB 用默认色
+              const a = parseFloat(aAttr || '1');
+              rgba = [defaultColor[0], defaultColor[1], defaultColor[2], isNaN(a) ? 1 : a];
+            }
+          }
+        } catch (e) { /* no color */ }
+        if (!rgba) {
+          rgba = [...defaultColor];
+        }
+
+        const colorKey = rgba.join(',');
+        if (colorKey !== oldColor) {
+          colorRanges.push({ start: allTriangles.length, color: [...rgba] });
+          oldColor = colorKey;
+        }
+        allTriangles.push(...indices);
+      }
+      if (colorRanges.length === 0 || allTriangles.length === 0) continue;
+      for (let i = 0; i < colorRanges.length; i++) {
+        colorRanges[i].end = (i + 1 < colorRanges.length)
+          ? colorRanges[i + 1].start : allTriangles.length;
+      }
+
+      // 解析顶点: <Positions> 和 <Normals>（逗号分隔浮点数）
+      let positionsEl = null, normalsEl = null;
+      for (const child of vertexBufEl.children) {
+        const t = child.tagName;
+        if (t === 'Positions' || t.endsWith(':Positions')) positionsEl = child;
+        else if (t === 'Normals' || t.endsWith(':Normals')) normalsEl = child;
+      }
+      if (!positionsEl) continue;
+
+      const posStrs = positionsEl.textContent.split(/[,\s]+/).filter(s => s.trim());
+      const positions = posStrs.map(parseFloat).filter(n => !isNaN(n));
+
+      let normals = [];
+      if (normalsEl) {
+        const nrmStrs = normalsEl.textContent.split(/[,\s]+/).filter(s => s.trim());
+        normals = nrmStrs.map(parseFloat).filter(n => !isNaN(n));
+      }
+
+      if (positions.length < 9) continue; // 至少需要一个三角形
+
+      instances.push({ positions, normals, triangles: allTriangles, colorRanges });
+    }
+    return instances;
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 模型构建器（几何缓存避免重复解析同一 3DRep）
+// ═══════════════════════════════════════════════════
+const sharedGeomCache = new Map(); // fileName → [{geometry, materials[]}]
+
+function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path = '', depth = 0) {
+  const currentPath = path ? path + '/' + treeNode.name : treeNode.name;
+  const group = new THREE.Group();
+  group.name = treeNode.name;
+
+  if (parentTransform) {
+    // 直接设矩阵避免 decompose 精度损失，对深层嵌套装配体尤其重要
+    group.matrix.copy(parentTransform);
+    group.matrixAutoUpdate = false;
+  }
+
+  if (treeNode.isLeaf) {
+    for (const leafPart of treeNode.leafParts) {
+      let cached = sharedGeomCache.get(leafPart.fileName);
+      if (!cached) {
+        cached = [];
+        const repInstances = parser.parse3DRep(leafPart.fileName);
+        for (const inst of repInstances) {
+          const posArr = new Float32Array(inst.positions);
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+          if (inst.normals.length > 0 && inst.normals.length === inst.positions.length) {
+            geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(inst.normals), 3));
+          }
+          const idxArr = new Uint32Array(inst.triangles);
+          geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
+          if (inst.normals.length === 0 || inst.normals.length !== inst.positions.length) {
+            geo.computeVertexNormals();
+          }
+          geo.clearGroups();
+          const materials = [];
+          for (let g = 0; g < inst.colorRanges.length; g++) {
+            const range = inst.colorRanges[g];
+            geo.addGroup(range.start, range.end - range.start, g);
+            const [r, gC, b, a] = range.color;
+            materials.push(new THREE.MeshStandardMaterial({
+              color: new THREE.Color(r, gC, b),
+              roughness: 0.55, metalness: 0.05,
+              transparent: a < 0.99, opacity: Math.max(0.05, a),
+              depthWrite: a > 0.7, side: THREE.FrontSide
+            }));
+          }
+          cached.push({ geometry: geo, materials });
+        }
+        sharedGeomCache.set(leafPart.fileName, cached);
+      }
+      // 复用缓存的几何体（共享 geometry，材质每个实例独立引用以避免批量状态问题）
+      for (const item of cached) {
+        const mesh = item.materials.length === 1
+          ? new THREE.Mesh(item.geometry, item.materials[0])
+          : new THREE.Mesh(item.geometry, item.materials.slice());
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mesh.name = leafPart.name || treeNode.name;
+        mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
+        group.add(mesh);
+        if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, mesh);
+      }
+    }
+  } else {
+    // 非叶子：递归处理子节点
+    for (let i = 0; i < treeNode.children.length; i++) {
+      const child = treeNode.children[i];
+      const matrixStr = treeNode.childMatrices[i] || '1 0 0 0 1 0 0 0 1 0 0 0';
+      const transform = parser.parseMatrix(matrixStr);
+      buildModelFromTree(child, parser, group, transform, currentPath, depth + 1);
+    }
+  }
+
+  // 如果 group 是空的叶子但没有子group（装配体无零件），加个标记
+  if (group.children.length === 0 && !treeNode.isLeaf) {
+    // 空装配体，跳过
+  }
+
+  group.userData = { treeNodeId: treeNode.id, name: treeNode.name, path: currentPath };
+  parentGroup.add(group);
+  if (!entityMap.has(treeNode.id)) {
+    entityMap.set(treeNode.id, group);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// 结构树 UI 构建
+// ═══════════════════════════════════════════════════
+function buildTreeUI(node, container, depth = 0) {
+  const nodeDiv = document.createElement('div');
+  nodeDiv.className = 'tree-node';
+  nodeDiv.style.paddingLeft = (14 + depth * 20) + 'px';
+  nodeDiv.dataset.nodeId = node.id;
+
+  const hasChildren = node.children && node.children.length > 0;
+  const isLeaf = node.isLeaf;
+
+  // 展开箭头
+  const arrow = document.createElement('span');
+  arrow.className = 'arrow' + (depth < 3 ? ' expanded' : '');
+  arrow.textContent = hasChildren ? '▶' : '';
+  arrow.style.visibility = hasChildren ? 'visible' : 'hidden';
+  nodeDiv.appendChild(arrow);
+
+  // 图标
+  const icon = document.createElement('span');
+  icon.className = 'icon';
+  icon.textContent = isLeaf ? '🔧' : hasChildren ? '📦' : '📁';
+  nodeDiv.appendChild(icon);
+
+  // 名称
+  const nameSpan = document.createElement('span');
+  nameSpan.className = 'name';
+  nameSpan.textContent = node.name || '(未命名)';
+  nodeDiv.appendChild(nameSpan);
+
+  // 点击事件
+  nodeDiv.addEventListener('click', (e) => {
+    e.stopPropagation();
+    selectTreeNode(node.id, nodeDiv);
+  });
+
+  container.appendChild(nodeDiv);
+
+  // 子节点容器
+  const childContainer = document.createElement('div');
+  childContainer.className = 'tree-children';
+  if (depth >= 3) childContainer.classList.add('collapsed');
+  container.appendChild(childContainer);
+
+  // 箭头切换展开/折叠
+  if (hasChildren) {
+    arrow.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isExpanded = arrow.classList.toggle('expanded');
+      childContainer.classList.toggle('collapsed', !isExpanded);
+    });
+
+    for (const child of node.children) {
+      buildTreeUI(child, childContainer, depth + 1);
+    }
+  }
+
+  return nodeDiv;
+}
+
+// ═══════════════════════════════════════════════════
+// 选中树节点 → 高亮对应 3D 对象
+// ═══════════════════════════════════════════════════
+function selectTreeNode(nodeId, nodeDiv) {
+  // 清除之前的高亮
+  clearHighlight();
+  // 清除之前的选中样式
+  treeList.querySelectorAll('.tree-node.selected').forEach(el => el.classList.remove('selected'));
+
+  if (nodeDiv) nodeDiv.classList.add('selected');
+  selectedNodeId = nodeId;
+
+  const obj = entityMap.get(nodeId);
+  if (!obj) return;
+
+  // 聚焦相机到对象
+  const bbox = new THREE.Box3().setFromObject(obj);
+  if (!bbox.isEmpty()) {
+    const center = new THREE.Vector3();
+    bbox.getCenter(center);
+    const size = new THREE.Vector3();
+    bbox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z);
+    const fov = camera.fov * (Math.PI / 180);
+    const dist = maxDim / (2 * Math.tan(fov / 2)) * 1.6;
+
+    // 平滑动画
+    const startTarget = controls.target.clone();
+    const startPos = camera.position.clone();
+    const endTarget = center.clone();
+    const endPos = center.clone().add(
+      new THREE.Vector3(dist * 0.5, dist * 0.4, dist * 0.8)
+    );
+
+    const startTime = Date.now();
+    const duration = 600;
+    function animateCamera() {
+      const elapsed = Date.now() - startTime;
+      const t = Math.min(elapsed / duration, 1.0);
+      // easeInOutCubic
+      const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      controls.target.lerpVectors(startTarget, endTarget, ease);
+      camera.position.lerpVectors(startPos, endPos, ease);
+      controls.update();
+      if (t < 1) {
+        requestAnimationFrame(animateCamera);
+      }
+    }
+    animateCamera();
+  }
+
+  // 添加高亮叠加层
+  obj.traverse((child) => {
+    if (child.isMesh) {
+      const hlMesh = new THREE.Mesh(child.geometry, highlightMaterial.clone());
+      hlMesh.position.copy(child.position);
+      hlMesh.rotation.copy(child.rotation);
+      hlMesh.scale.copy(child.scale);
+      hlMesh.matrixAutoUpdate = false;
+      hlMesh.matrix.copy(child.matrixWorld);
+      hlMesh.renderOrder = 999;
+      hlMesh.material.depthTest = true;
+      scene.add(hlMesh);
+      highlightMeshes.push(hlMesh);
+    }
+  });
+
+  // 移动端关闭侧边栏
+  if (window.innerWidth < 768) {
+    closeTreePanel();
+  }
+}
+
+function clearHighlight() {
+  for (const mesh of highlightMeshes) {
+    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.material) mesh.material.dispose();
+    scene.remove(mesh);
+  }
+  highlightMeshes = [];
+  selectedNodeId = null;
+}
+
+// ═══════════════════════════════════════════════════
+// UI 辅助函数
+// ═══════════════════════════════════════════════════
+function showLoading(show) {
+  loadingEl.classList.toggle('hidden', !show);
+}
+function openTreePanel() {
+  treePanel.classList.add('open');
+  overlay.classList.add('show');
+}
+function closeTreePanel() {
+  treePanel.classList.remove('open');
+  overlay.classList.remove('show');
+}
+
+// ═══════════════════════════════════════════════════
+// 主流程：打开并加载文件
+// ═══════════════════════════════════════════════════
+async function openFiles(fileList) {
+  const files = Array.isArray(fileList) ? fileList : [fileList];
+  if (files.length === 0) return;
+
+  try {
+    showLoading(true);
+    loadingText.textContent = '正在读取文件...';
+
+    // 清除旧模型
+    clearHighlight();
+    entityMap.clear();
+    sharedGeomCache.clear();
+    while (rootGroup.children.length > 0) {
+      disposeObject(rootGroup.children[0]);
+      rootGroup.remove(rootGroup.children[0]);
+    }
+    treeList.innerHTML = '';
+
+    // 解析（传入文件数组）
+    const parser = new ThreeDXMLParser();
+    const tree = await parser.load(files);
+
+    // 构建 3D 模型
+    loadingText.textContent = '正在渲染模型...';
+    buildModelFromTree(tree, parser, rootGroup, null);
+
+    // 保存树数据
+    modelTreeData = tree;
+
+    // 更新场景包围盒 + 动态设置相机和控制范围
+    const bbox = new THREE.Box3().setFromObject(rootGroup);
+    if (!bbox.isEmpty()) {
+      const center = new THREE.Vector3();
+      bbox.getCenter(center);
+      const size = new THREE.Vector3();
+      bbox.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z, 0.01);
+      // 让模型在屏幕中约占 40% 面积（视角方向）
+      const fitDist = maxDim / (2 * Math.tan((camera.fov * 0.65) * Math.PI / 360));
+      const viewDist = fitDist * 2.0;
+      // Y-up：从斜上方（偏右前）观察
+      camera.position.set(viewDist * 0.55, viewDist * 0.5, viewDist * 0.7);
+      controls.target.copy(center);
+      controls.minDistance = maxDim * 0.01;
+      controls.maxDistance = viewDist * 10; // 可以缩到很远看整体
+      // 更新阴影和灯光
+      dirLight.shadow.camera.far = maxDim * 4;
+      dirLight.position.copy(center.clone().add(new THREE.Vector3(maxDim * 0.8, maxDim * 1.2, maxDim * 0.8)));
+      dirLight.shadow.camera.left = -maxDim;
+      dirLight.shadow.camera.right = maxDim;
+      dirLight.shadow.camera.top = maxDim;
+      dirLight.shadow.camera.bottom = -maxDim;
+    } else {
+      // 无几何体，保持默认
+      console.warn('场景中没有 3D 几何体，请确保同时加载了 .3dxml 和 .3DRep 文件');
+    }
+
+    // 构建结构树 UI
+    treeList.innerHTML = '';
+    buildTreeUI(tree, treeList);
+
+    // 更新标题
+    const xmlFile = files.find(f => /\.3dxml$/i.test(f.name));
+    titleText.textContent = xmlFile ? xmlFile.name.replace(/\.3dxml$/i, '') : (files[0].name || '模型');
+
+    controls.update();
+    showLoading(false);
+    gestureHint.style.opacity = '1';
+    setTimeout(() => { gestureHint.style.opacity = '0'; }, 8000);
+
+  } catch (err) {
+    console.error(err);
+    showLoading(false);
+    alert('加载失败：' + (err.message || err));
+    titleText.textContent = '3DXML 查看器';
+  }
+}
+
+// 递归销毁对象
+function disposeObject(obj) {
+  obj.traverse((child) => {
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) {
+      if (Array.isArray(child.material)) {
+        child.material.forEach(m => m.dispose());
+      } else {
+        child.material.dispose();
+      }
+    }
+  });
+  if (obj.parent) obj.parent.remove(obj);
+}
+
+// ═══════════════════════════════════════════════════
+// 事件绑定
+// ═══════════════════════════════════════════════════
+// 打开文件按钮
+document.getElementById('btn-open').addEventListener('click', () => {
+  fileInput.click();
+});
+fileInput.addEventListener('change', (e) => {
+  const files = Array.from(e.target.files);
+  if (files.length > 0) openFiles(files);
+  fileInput.value = '';
+});
+
+// 结构树按钮
+document.getElementById('btn-tree').addEventListener('click', openTreePanel);
+document.getElementById('btn-tree-close').addEventListener('click', closeTreePanel);
+overlay.addEventListener('click', closeTreePanel);
+
+// 适应视图按钮
+document.getElementById('btn-fit').addEventListener('click', () => {
+  clearHighlight();
+  treeList.querySelectorAll('.tree-node.selected').forEach(el => el.classList.remove('selected'));
+  selectedNodeId = null;
+  const bbox = new THREE.Box3().setFromObject(rootGroup);
+  if (!bbox.isEmpty()) {
+    const center = new THREE.Vector3();
+    bbox.getCenter(center);
+    const size = new THREE.Vector3();
+    bbox.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z, 0.01);
+    const fitDist = maxDim / (2 * Math.tan((camera.fov * 0.65) * Math.PI / 360));
+    const viewDist = fitDist * 2.0;
+    camera.position.set(viewDist * 0.55, viewDist * 0.5, viewDist * 0.7);
+    controls.target.copy(center);
+    controls.maxDistance = Math.max(controls.maxDistance, viewDist * 10);
+    controls.update();
+  }
+});
+
+// 双击聚焦
+renderer.domElement.addEventListener('dblclick', (e) => {
+  // 射线检测点击的对象
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(rootGroup.children, true);
+  if (intersects.length > 0) {
+    // 找到最接近的带 treeNodeId 的祖先
+    let obj = intersects[0].object;
+    while (obj) {
+      if (obj.userData && obj.userData.treeNodeId && entityMap.has(obj.userData.treeNodeId)) {
+        const nodeId = obj.userData.treeNodeId;
+        const nodeDiv = treeList.querySelector(`[data-node-id="${nodeId}"]`);
+        selectTreeNode(nodeId, nodeDiv);
+        // 滚动到可见
+        if (nodeDiv) nodeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      obj = obj.parent;
+    }
+  }
+});
+
+// 窗口大小调整
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  if (window.innerWidth >= 768) closeTreePanel();
+});
+
+// 键盘快捷键
+window.addEventListener('keydown', (e) => {
+  switch (e.key.toLowerCase()) {
+    case 'f': document.getElementById('btn-fit').click(); break;
+    case 't': openTreePanel(); break;
+    case 'escape': closeTreePanel(); break;
+    case '0': clearHighlight(); treeList.querySelectorAll('.tree-node.selected').forEach(el => el.classList.remove('selected')); selectedNodeId = null; break;
+  }
+});
+
+// ═══════════════════════════════════════════════════
+// 渲染循环
+// ═══════════════════════════════════════════════════
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+// ═══════════════════════════════════════════════════
+// 支持拖放打开
+// ═══════════════════════════════════════════════════
+document.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
+document.addEventListener('drop', (e) => {
+  e.preventDefault(); e.stopPropagation();
+  const files = Array.from(e.dataTransfer.files);
+  const validFiles = files.filter(f => /\.(3dxml|3DRep|3drep)$/i.test(f.name));
+  if (validFiles.length > 0) openFiles(validFiles);
+});
+
+console.log('✅ 3DXML 手机查看器已就绪');
+console.log('  📂 点击右上角按钮选择文件（可同时选 .3dxml + .3DRep）');
+console.log('  🌳 点击左上角查看结构树');
+console.log('  👆 单指旋转 | 双指缩放/平移 | 双击聚焦零件');
+console.log('  ⌨  快捷键: F=适应视图 T=结构树 Esc=关闭面板 0=取消选中');
+console.log('  💡 如果模型无几何体，请同时多选 .3dxml 和 .3DRep 文件');
+// ════════════════════════════ PWA 安装 ════════════════════════════
+// 内联 Manifest（使浏览器识别为可安装 App）
+const manifest = {
+  name: '3DXML 查看器',
+  short_name: '3DXML',
+  description: '手机端 CATIA 3DXML 模型查看器',
+  start_url: location.href,
+  display: 'standalone',
+  orientation: 'any',
+  background_color: '#1a1a2e',
+  theme_color: '#1a1a2e',
+  icons: [{ src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="#1a1a2e" width="100" height="100" rx="20"/><text x="50" y="68" font-size="60" text-anchor="middle" fill="#e94560">3D</text></svg>'), sizes: '100x100', type: 'image/svg+xml' }]
+};
+const blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+const manifestUrl = URL.createObjectURL(blob);
+const link = document.createElement('link');
+link.rel = 'manifest';
+link.href = manifestUrl;
+document.head.appendChild(link);
+
+// 内联 Service Worker（缓存核心资源，允许离线打开）
+if ('serviceWorker' in navigator) {
+  const swCode = `
+const CACHE = '3dxml-viewer-v1';
+const ASSETS = [self.location.href];
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
+});
+self.addEventListener('fetch', e => {
+  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
+});
+`;
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
+}
+</script>
+</body>
+</html>
