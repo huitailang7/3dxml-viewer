@@ -973,20 +973,9 @@ console.log('  🌳 点击左上角查看结构树');
 console.log('  👆 单指旋转 | 双指缩放/平移 | 双击聚焦零件');
 console.log('  ⌨  快捷键: F=适应视图 T=结构树 Esc=关闭面板 0=取消选中');
 console.log('  💡 如果模型无几何体，请同时多选 .3dxml 和 .3DRep 文件');
-// ════════════════════════════ Service Worker（离线缓存）═══════════════════════════
+// 注册 Service Worker（离线缓存）
 if ('serviceWorker' in navigator) {
-  const swCode = `
-const CACHE = '3dxml-viewer-v1';
-const ASSETS = [self.location.href];
-self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
-});
-self.addEventListener('fetch', e => {
-  e.respondWith(caches.match(e.request).then(r => r || fetch(e.request)));
-});
-`;
-  const swBlob = new Blob([swCode], { type: 'application/javascript' });
-  navigator.serviceWorker.register(URL.createObjectURL(swBlob)).catch(() => {});
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 </script>
 </body>
