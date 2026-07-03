@@ -795,6 +795,7 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
         mesh.name = leafPart.name || treeNode.name;
         mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
         group.add(mesh);
+        geomCount.total++;
       }
       // 始终映射到 group（包含该节点所有mesh），而非单个mesh
       if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, group);
@@ -1004,10 +1005,16 @@ async function openFiles(fileList) {
 
     // 解析（传入文件数组）
     const parser = new ThreeDXMLParser();
+    loadingText.textContent = '正在解析结构...';
     const tree = await parser.load(files);
+    loadingText.textContent = '解析完成: ' +
+      Object.keys(parser.treeDict).length + '节点 ' +
+      Object.keys(parser.repDict).length + '几何 ' +
+      (parser.isUVR ? 'UVR' : parser.is3MF ? '3MF' : 'TESSELLATED');
 
     // 构建 3D 模型
     loadingText.textContent = '正在渲染模型...';
+    const geomCount = { total: 0 };
     console.log('🔨 开始构建模型, 根节点=' + tree.name + ', isLeaf=' + tree.isLeaf);
     try {
       buildModelFromTree(tree, parser, rootGroup, null);
@@ -1046,6 +1053,9 @@ async function openFiles(fileList) {
       dirLight.shadow.camera.bottom = -maxDim;
     } else {
       // 无几何体，保持默认
+      loadingText.textContent = '❌ 无几何! 节点:' +
+        Object.keys(parser.treeDict).length + ' 几何:' +
+        Object.keys(parser.repDict).length + ' 零件:' + geomCount.total;
       console.warn('场景中没有 3D 几何体，请确保同时加载了 .3dxml 和 .3DRep 文件');
     }
 
