@@ -1240,6 +1240,9 @@ animate();
 // PWA 安装
 let deferredPrompt = null;
 const btnInstall = document.getElementById('btn-install');
+// 手机端始终显示按钮
+if (/Mobi|Android/i.test(navigator.userAgent)) btnInstall.style.display = 'flex';
+
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
@@ -1251,6 +1254,9 @@ btnInstall.addEventListener('click', async () => {
     const { outcome } = await deferredPrompt.userChoice;
     btnInstall.style.display = outcome === 'accepted' ? 'none' : 'flex';
     deferredPrompt = null;
+  } else {
+    // 浏览器不支持原生安装提示，引导手动操作
+    alert('请使用浏览器菜单安装：\n\n• Edge: 点底部 ⋮ → "添加到手机"\n• Chrome: 点右上 ⋮ → "添加到主屏幕"\n• Safari: 点分享按钮 → "添加到主屏幕"');
   }
 });
 
