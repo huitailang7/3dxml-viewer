@@ -2,6 +2,7 @@
   "name": "3DXML 查看器",
   "short_name": "3DXML",
   "description": "手机端 CATIA 3DXML 模型查看器",
+  "id": "3dxml-viewer",
   "start_url": ".",
   "display": "standalone",
   "orientation": "any",
