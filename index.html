@@ -64,6 +64,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 .tree-node.selected { background:rgba(233,69,96,0.15); border-left-color:var(--accent); }
 .tree-node .icon { width:22px; height:22px; margin-right:8px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
 .tree-node .name { color:var(--text); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.tree-node .check { width:16px; height:16px; margin-right:6px; flex-shrink:0; accent-color:var(--accent); cursor:pointer; }
 .tree-node .arrow { width:20px; height:20px; margin-right:4px; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text2); transition:transform 0.2s; flex-shrink:0; }
 .tree-node .arrow.expanded { transform:rotate(90deg); }
 .tree-children { overflow:hidden; transition:max-height 0.25s ease; }
@@ -854,6 +855,19 @@ function buildTreeUI(node, container, depth = 0) {
   arrow.textContent = hasChildren ? '▶' : '';
   arrow.style.visibility = hasChildren ? 'visible' : 'hidden';
   nodeDiv.appendChild(arrow);
+
+  // 显示/隐藏复选框
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.className = 'check';
+  check.checked = true;
+  check.title = '显示/隐藏';
+  check.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const target = entityMap.get(node.id);
+    if (target) target.visible = check.checked;
+  });
+  nodeDiv.appendChild(check);
 
   // 图标
   const icon = document.createElement('span');
