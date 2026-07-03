@@ -605,6 +605,7 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
           cached.push({ geometry: geo, materials });
         }
         sharedGeomCache.set(leafPart.fileName, cached);
+        }
       }
       // 复用缓存的几何体（共享 geometry，材质每个实例独立引用以避免批量状态问题）
       for (const item of cached) {
