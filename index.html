@@ -226,6 +226,8 @@ class ThreeDXMLParser {
     this.repFileMap = {};     // rep filename → rep file content
     this.modelRoot = 0;
     this.fileName = '';
+    this.isUVR = false;       // UVR 二进制格式 → 用球体渲染
+    this.weldColors = [];     // UVR 模式的颜色表
   }
 
   // 检测文件是否为 ZIP 格式（PK 头）
@@ -348,7 +350,9 @@ class ThreeDXMLParser {
         const name = el.getAttribute('name') || '';
         const associatedFile = el.getAttribute('associatedFile') || '';
         const fileName = associatedFile.split(':').pop();
-        this.repDict[id] = { id, name, fileName };
+        const format = el.getAttribute('format') || '';
+        if (format === 'UVR') this.isUVR = true;
+        this.repDict[id] = { id, name, fileName, format };
       } else if (type === 'InstanceRepType' || type === 'InstanceRep') {
         const els = el.getElementsByTagName('*');
         const aggregatedBy = parseInt(els[0]?.textContent);
@@ -545,34 +549,58 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
 
   if (treeNode.isLeaf) {
     for (const leafPart of treeNode.leafParts) {
-      let cached = sharedGeomCache.get(leafPart.fileName);
-      if (!cached) {
-        cached = [];
-        const repInstances = parser.parse3DRep(leafPart.fileName);
-        for (const inst of repInstances) {
-          const posArr = new Float32Array(inst.positions);
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
-          if (inst.normals.length > 0 && inst.normals.length === inst.positions.length) {
-            geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(inst.normals), 3));
-          }
-          const idxArr = new Uint32Array(inst.triangles);
-          geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
-          if (inst.normals.length === 0 || inst.normals.length !== inst.positions.length) {
-            geo.computeVertexNormals();
-          }
-          geo.clearGroups();
-          const materials = [];
-          for (let g = 0; g < inst.colorRanges.length; g++) {
-            const range = inst.colorRanges[g];
-            geo.addGroup(range.start, range.end - range.start, g);
-            const [r, gC, b, a] = range.color;
-            materials.push(new THREE.MeshStandardMaterial({
-              color: new THREE.Color(r, gC, b),
-              roughness: 0.55, metalness: 0.05,
-              transparent: a < 0.99, opacity: Math.max(0.05, a),
-              depthWrite: a > 0.7, side: THREE.FrontSide
-            }));
+      let cached;
+      if (parser.isUVR) {
+        // ──── UVR 二进制 → 渲染球体（焊点球）────
+        cached = sharedGeomCache.get('__uvr_sphere__');
+        if (!cached) {
+          const geo = new THREE.SphereGeometry(1, 16, 12);
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0xff4444, roughness: 0.3, metalness: 0.2
+          });
+          cached = [{ geometry: geo, materials: [mat] }];
+          sharedGeomCache.set('__uvr_sphere__', cached);
+        }
+        for (const item of cached) {
+          const mesh = new THREE.Mesh(item.geometry, item.materials[0]);
+          mesh.castShadow = true; mesh.receiveShadow = true;
+          const scale = 4; // 焊点球默认半径4mm
+          mesh.scale.set(scale, scale, scale);
+          mesh.name = leafPart.name || treeNode.name;
+          mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
+          group.add(mesh);
+          if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, mesh);
+        }
+      } else {
+        // ──── TESSELLATED XML → 正常解析 ────
+        cached = sharedGeomCache.get(leafPart.fileName);
+        if (!cached) {
+          cached = [];
+          const repInstances = parser.parse3DRep(leafPart.fileName);
+          for (const inst of repInstances) {
+            const posArr = new Float32Array(inst.positions);
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+            if (inst.normals.length > 0 && inst.normals.length === inst.positions.length) {
+              geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(inst.normals), 3));
+            }
+            const idxArr = new Uint32Array(inst.triangles);
+            geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
+            if (inst.normals.length === 0 || inst.normals.length !== inst.positions.length) {
+              geo.computeVertexNormals();
+            }
+            geo.clearGroups();
+            const materials = [];
+            for (let g = 0; g < inst.colorRanges.length; g++) {
+              const range = inst.colorRanges[g];
+              geo.addGroup(range.start, range.end - range.start, g);
+              const [r, gC, b, a] = range.color;
+              materials.push(new THREE.MeshStandardMaterial({
+                color: new THREE.Color(r, gC, b),
+                roughness: 0.55, metalness: 0.05,
+                transparent: a < 0.99, opacity: Math.max(0.05, a),
+                depthWrite: a > 0.7, side: THREE.FrontSide
+              }));
           }
           cached.push({ geometry: geo, materials });
         }
