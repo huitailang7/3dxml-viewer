@@ -11,8 +11,10 @@
 <meta name="apple-mobile-web-app-title" content="3DXML 查看器">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1a1a2e">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json" crossorigin="use-credentials">
 <style>
 :root {
   --bg: #1a1a2e;
@@ -83,6 +85,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
   <span class="title" id="title-text">3DXML 查看器</span>
   <button id="btn-open" title="打开文件">📂</button>
   <button id="btn-fit" title="适应视图">🔍</button>
+  <button id="btn-install" title="安装APP" style="display:none">📲</button>
 </div>
 
 <!-- 加载画面 -->
@@ -1234,6 +1237,23 @@ function animate() {
 animate();
 
 // ═══════════════════════════════════════════════════
+// PWA 安装
+let deferredPrompt = null;
+const btnInstall = document.getElementById('btn-install');
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  btnInstall.style.display = 'flex';
+});
+btnInstall.addEventListener('click', async () => {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    btnInstall.style.display = outcome === 'accepted' ? 'none' : 'flex';
+    deferredPrompt = null;
+  }
+});
+
 // 支持拖放打开
 // ═══════════════════════════════════════════════════
 document.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
