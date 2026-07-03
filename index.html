@@ -70,8 +70,8 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 .tree-children.collapsed { max-height:0 !important; }
 
 /* 遮罩 */
-#overlay { position:fixed; top:0; left:0; width:100%; height:100%; z-index:14; background:rgba(0,0,0,0.4); display:none; }
-#overlay.show { display:block; }
+#overlay { position:fixed; top:0; left:0; width:100%; height:100%; z-index:14; background:rgba(0,0,0,0.3); display:none; pointer-events:none; }
+#overlay.show { display:block; pointer-events:auto; }
 </style>
 </head>
 <body>
@@ -864,7 +864,13 @@ function buildTreeUI(node, container, depth = 0) {
   // 名称
   const nameSpan = document.createElement('span');
   nameSpan.className = 'name';
-  nameSpan.textContent = node.label || node.name || '(未命名)';
+  const label = node.label || '';
+  const pn = node.name || '';
+  if (label && pn && label !== pn) {
+    nameSpan.textContent = pn + '(' + label + ')';
+  } else {
+    nameSpan.textContent = pn || label || '(未命名)';
+  }
   nodeDiv.appendChild(nameSpan);
 
   // 点击事件
@@ -965,10 +971,7 @@ function selectTreeNode(nodeId, nodeDiv) {
     }
   });
 
-  // 移动端关闭侧边栏
-  if (window.innerWidth < 768) {
-    closeTreePanel();
-  }
+
 }
 
 function clearHighlight() {
@@ -989,11 +992,9 @@ function showLoading(show) {
 }
 function openTreePanel() {
   treePanel.classList.add('open');
-  overlay.classList.add('show');
 }
 function closeTreePanel() {
   treePanel.classList.remove('open');
-  overlay.classList.remove('show');
 }
 
 // ═══════════════════════════════════════════════════
@@ -1136,7 +1137,6 @@ fileInput.addEventListener('change', (e) => {
 // 结构树按钮
 document.getElementById('btn-tree').addEventListener('click', openTreePanel);
 document.getElementById('btn-tree-close').addEventListener('click', closeTreePanel);
-overlay.addEventListener('click', closeTreePanel);
 
 // 适应视图按钮
 document.getElementById('btn-fit').addEventListener('click', () => {
@@ -1225,7 +1225,6 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  if (window.innerWidth >= 768) closeTreePanel();
 });
 
 // 键盘快捷键
