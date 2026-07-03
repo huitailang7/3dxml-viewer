@@ -83,6 +83,10 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 <!-- 顶栏 -->
 <div id="toolbar">
   <button id="btn-tree" title="结构树">🌳</button>
+  <label id="lbl-follow" title="视觉跟随" style="display:flex;align-items:center;gap:4px;color:var(--text);font-size:11px;cursor:pointer;pointer-events:auto;white-space:nowrap;">
+    <input type="checkbox" id="chk-follow" checked style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer;">
+    <span>视觉跟随</span>
+  </label>
   <span class="title" id="title-text">3DXML 查看器</span>
   <button id="btn-open" title="打开文件">📂</button>
   <button id="btn-fit" title="适应视图">🔍</button>
@@ -930,14 +934,16 @@ function selectTreeNode(nodeId, nodeDiv) {
   selectedNodeId = nodeId;
 
   const obj = entityMap.get(nodeId);
-  if (!obj) return;
+  if (!obj) { console.warn('selectTreeNode: entityMap未找到 id=' + nodeId); return; }
 
   // 先刷新世界矩阵（group 可能 matrixAutoUpdate=false）
   scene.updateMatrixWorld();
 
-  // 聚焦相机到对象
-  const bbox = new THREE.Box3().setFromObject(obj);
-  if (!bbox.isEmpty()) {
+  // 聚焦相机到对象（视觉跟随激活时才移动）
+  const follow = document.getElementById('chk-follow');
+  if (follow && follow.checked) {
+    const bbox = new THREE.Box3().setFromObject(obj);
+    if (!bbox.isEmpty()) {
     const center = new THREE.Vector3();
     bbox.getCenter(center);
     const size = new THREE.Vector3();
@@ -969,6 +975,7 @@ function selectTreeNode(nodeId, nodeDiv) {
       }
     }
     animateCamera();
+    }
   }
 
   // 添加高亮叠加层
