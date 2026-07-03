@@ -110,7 +110,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 </div>
 
 <!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
-<input type="file" id="file-input" accept=".3dxml,.3DXML,.3DRep,.3drep" multiple style="display:none">
+<input type="file" id="file-input" accept=".3dxml,.3DXML,.3DRep,.3drep,.3mf,.3MF,.stp,.step" multiple style="display:none">
 
 <!-- JSZip -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -227,7 +227,8 @@ class ThreeDXMLParser {
     this.modelRoot = 0;
     this.fileName = '';
     this.isUVR = false;       // UVR 二进制格式 → 用球体渲染
-    this.weldColors = [];     // UVR 模式的颜色表
+    this.is3MF = false;       // 3MF 格式
+    this.mf3Data = null;      // 3MF 解析后的几何数据
   }
 
   // 检测文件是否为 ZIP 格式（PK 头）
@@ -268,6 +269,9 @@ class ThreeDXMLParser {
     if (!xmlFile) throw new Error('未找到 .3dxml 文件，请同时选择 .3dxml 和 .3DRep 文件');
 
     this.fileName = xmlFile.name;
+
+    // 检测是否为 3MF 文件
+    if (/\.3mf$/i.test(xmlFile.name)) { return this.parse3MF(header); }
 
     // 读取第一个文件的前2字节判断是否为ZIP
     const header = await this._readFileAsBuffer(xmlFile);
@@ -529,6 +533,53 @@ class ThreeDXMLParser {
     }
     return instances;
   }
+
+  // 3MF 解析（ZIP+XML，永远三角面片）
+  async parse3MF(buffer) {
+    loadingText.textContent = '正在解析 3MF...';
+    const zip = await JSZip.loadAsync(buffer);
+    // 3MF 结构: ZIP → 3D/3dmodel.model
+    const modelFile = zip.file('3D/3dmodel.model') || zip.file(/3dmodel\.model$/i)[0];
+    if (!modelFile) throw new Error('3MF: 找不到 3dmodel.model');
+    const xml = await modelFile.async('text');
+    const doc = new DOMParser().parseFromString(xml, 'text/xml');
+
+    this.is3MF = true;
+    this.mf3Data = { objects: [] };
+
+    // 解析 resources → object → mesh
+    const resources = doc.getElementsByTagName('resources')[0];
+    if (!resources) throw new Error('3MF: 缺少 resources');
+    const objs = resources.getElementsByTagName('object');
+    for (const obj of objs) {
+      const mesh = obj.getElementsByTagName('mesh')[0];
+      if (!mesh) continue;
+      const vertEls = mesh.getElementsByTagName('vertices')[0]?.getElementsByTagName('vertex') || [];
+      const triEls = mesh.getElementsByTagName('triangles')[0]?.getElementsByTagName('triangle') || [];
+      if (vertEls.length === 0 || triEls.length === 0) continue;
+
+      const positions = []; const indices = [];
+      for (const v of vertEls) {
+        positions.push(parseFloat(v.getAttribute('x')||0), parseFloat(v.getAttribute('y')||0), parseFloat(v.getAttribute('z')||0));
+      }
+      for (const t of triEls) {
+        indices.push(parseInt(t.getAttribute('v1')||0), parseInt(t.getAttribute('v2')||0), parseInt(t.getAttribute('v3')||0));
+      }
+      if (positions.length > 0) {
+        this.mf3Data.objects.push({ positions, indices });
+      }
+    }
+    console.log('3MF: ' + this.mf3Data.objects.length + ' objects');
+    if (this.mf3Data.objects.length === 0) throw new Error('3MF: 无几何体');
+    return this.buildTree(); // 返回空树（3MF不用树）
+  }
+
+  buildTree() {
+    if (!this.treeDict[this.modelRoot] && !this.is3MF) {
+      throw new Error('找不到模型根节点 id=' + this.modelRoot);
+    }
+    return this.treeDict[this.modelRoot] || { name: '3MF Model', children: [], isLeaf: true, leafParts: [{ name: '3MF', fileName: '__3mf__', format: '3MF' }] };
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -550,7 +601,31 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
   if (treeNode.isLeaf) {
     for (const leafPart of treeNode.leafParts) {
       let cached;
-      if (parser.isUVR) {
+      if (parser.is3MF) {
+        // ──── 3MF 格式 ────
+        const key = '__3mf_geom__' + leafPart.fileName;
+        cached = sharedGeomCache.get(key);
+        if (!cached) {
+          cached = [];
+          for (const obj of parser.mf3Data.objects) {
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(obj.positions), 3));
+            geo.setIndex(new THREE.BufferAttribute(new Uint32Array(obj.indices), 1));
+            geo.computeVertexNormals();
+            const mat = new THREE.MeshStandardMaterial({ color: 0x8899aa, roughness: 0.5, metalness: 0.1 });
+            cached.push({ geometry: geo, materials: [mat] });
+          }
+          sharedGeomCache.set(key, cached);
+        }
+        for (const item of cached) {
+          const mesh = new THREE.Mesh(item.geometry, item.materials[0]);
+          mesh.castShadow = true; mesh.receiveShadow = true;
+          mesh.name = leafPart.name || '3MF';
+          mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
+          group.add(mesh);
+          if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, mesh);
+        }
+      } else if (parser.isUVR) {
         // ──── UVR 二进制 → 渲染球体（焊点球）────
         cached = sharedGeomCache.get('__uvr_sphere__');
         if (!cached) {
@@ -872,7 +947,11 @@ async function openFiles(fileList) {
     controls.update();
     showLoading(false);
     const welcome = document.getElementById('welcome');
-    if (parser.isUVR) {
+    if (parser.is3MF) {
+      welcome.innerHTML = '<span class="icon">📐</span><span class="msg">3MF 模型</span><span class="sub">三角面片已加载</span>';
+      welcome.style.display = 'block';
+      setTimeout(() => { welcome.style.display = 'none'; }, 3000);
+    } else if (parser.isUVR) {
       welcome.innerHTML = '<span class="icon">🟠</span><span class="msg">UVR 焊点球模式</span><span class="sub">二进制几何已转为球体显示</span>';
       welcome.style.display = 'block';
     } else {
