@@ -1,4 +1,4 @@
-const CACHE = '3dxml-viewer-v3';
+const CACHE = '3dxml-viewer-v4';
 const ASSETS = [
   './',
   './index.html',
