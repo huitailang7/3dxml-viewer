@@ -554,7 +554,7 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
         // ──── UVR 二进制 → 渲染球体（焊点球）────
         cached = sharedGeomCache.get('__uvr_sphere__');
         if (!cached) {
-          const geo = new THREE.SphereGeometry(1, 16, 12);
+          const geo = new THREE.SphereGeometry(1, 12, 8);
           const mat = new THREE.MeshStandardMaterial({
             color: 0xff4444, roughness: 0.3, metalness: 0.2
           });
@@ -564,7 +564,7 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
         for (const item of cached) {
           const mesh = new THREE.Mesh(item.geometry, item.materials[0]);
           mesh.castShadow = true; mesh.receiveShadow = true;
-          const scale = 4; // 焊点球默认半径4mm
+          const scale = 12; // 焊点球半径12mm，在模型尺度下可见
           mesh.scale.set(scale, scale, scale);
           mesh.name = leafPart.name || treeNode.name;
           mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
@@ -870,7 +870,13 @@ async function openFiles(fileList) {
 
     controls.update();
     showLoading(false);
-    document.getElementById('welcome').style.display = 'none';
+    const welcome = document.getElementById('welcome');
+    if (parser.isUVR) {
+      welcome.innerHTML = '<span class="icon">🟠</span><span class="msg">UVR 焊点球模式</span><span class="sub">二进制几何已转为球体显示</span>';
+      welcome.style.display = 'block';
+    } else {
+      welcome.style.display = 'none';
+    }
     gestureHint.style.opacity = '1';
     setTimeout(() => { gestureHint.style.opacity = '0'; }, 8000);
 
