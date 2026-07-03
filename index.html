@@ -918,6 +918,9 @@ function selectTreeNode(nodeId, nodeDiv) {
   const obj = entityMap.get(nodeId);
   if (!obj) return;
 
+  // 先刷新世界矩阵（group 可能 matrixAutoUpdate=false）
+  scene.updateMatrixWorld();
+
   // 聚焦相机到对象
   const bbox = new THREE.Box3().setFromObject(obj);
   if (!bbox.isEmpty()) {
@@ -925,9 +928,9 @@ function selectTreeNode(nodeId, nodeDiv) {
     bbox.getCenter(center);
     const size = new THREE.Vector3();
     bbox.getSize(size);
-    const maxDim = Math.max(size.x, size.y, size.z);
+    const maxDim = Math.max(size.x, size.y, size.z, 1.0);  // 最小1mm防止焊点等极小物体
     const fov = camera.fov * (Math.PI / 180);
-    const dist = maxDim / (2 * Math.tan(fov / 2)) * 1.6;
+    const dist = Math.max(maxDim / (2 * Math.tan(fov / 2)) * 1.6, maxDim * 2);
 
     // 平滑动画
     const startTarget = controls.target.clone();
@@ -954,8 +957,7 @@ function selectTreeNode(nodeId, nodeDiv) {
     animateCamera();
   }
 
-  // 添加高亮叠加层（先确保matrixWorld最新）
-  scene.updateMatrixWorld();
+  // 添加高亮叠加层
   obj.traverse((child) => {
     if (child.isMesh) {
       const hlMesh = new THREE.Mesh(child.geometry, highlightMaterial.clone());
