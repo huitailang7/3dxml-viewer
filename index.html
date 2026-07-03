@@ -252,8 +252,9 @@ class ThreeDXMLParser {
 
     showLoading(true);
 
-    // 分类文件：找到 .3dxml 和所有 .3DRep
+    // 分类文件：找到 .3dxml / .3mf 和所有 .3DRep
     let xmlFile = null;
+    let mf3File = null;
     const repFiles = []; // { name, file }
 
     for (const f of fileList) {
@@ -261,17 +262,24 @@ class ThreeDXMLParser {
       const upper = name.toUpperCase();
       if (upper.endsWith('.3DXML')) {
         xmlFile = f;
+      } else if (upper.endsWith('.3MF')) {
+        mf3File = f;
       } else if (upper.endsWith('.3DREP')) {
         repFiles.push({ name: name.split('/').pop().split('\\').pop(), file: f });
       }
     }
 
-    if (!xmlFile) throw new Error('未找到 .3dxml 文件，请同时选择 .3dxml 和 .3DRep 文件');
+    // ──── 3MF 格式 ────
+    if (mf3File) {
+      this.fileName = mf3File.name;
+      loadingText.textContent = '正在解析 3MF...';
+      const mf3Buffer = await this._readFileAsBuffer(mf3File);
+      return this.parse3MF(mf3Buffer);
+    }
+
+    if (!xmlFile) throw new Error('未找到 .3dxml 或 .3mf 文件，请选择 .3dxml(+.3DRep) 或 .3mf 文件');
 
     this.fileName = xmlFile.name;
-
-    // 检测是否为 3MF 文件
-    if (/\.3mf$/i.test(xmlFile.name)) { return this.parse3MF(header); }
 
     // 读取第一个文件的前2字节判断是否为ZIP
     const header = await this._readFileAsBuffer(xmlFile);
@@ -334,7 +342,12 @@ class ThreeDXMLParser {
     if (!productStructure) throw new Error('无效的 3DXML：缺少 ProductStructure 节点');
 
     this.modelRoot = parseInt(productStructure.getAttribute('root'));
-    const children = productStructure.children;
+    const children = Array.from(productStructure.children);
+
+    // ═══ 第一遍：收集所有 Reference3D 和 ReferenceRep═══
+    // 必须先建立完整的 treeDict 和 repDict，
+    // 因为 InstanceRep/Instance3D 可能引用的目标在后面才出现
+    const deferred = { instanceReps: [], instance3Ds: [] };
 
     for (const el of children) {
       const type = el.getAttribute('xsi:type')
@@ -358,24 +371,38 @@ class ThreeDXMLParser {
         if (format === 'UVR') this.isUVR = true;
         this.repDict[id] = { id, name, fileName, format };
       } else if (type === 'InstanceRepType' || type === 'InstanceRep') {
-        const els = el.getElementsByTagName('*');
-        const aggregatedBy = parseInt(els[0]?.textContent);
-        const instanceOf = parseInt(els[1]?.textContent);
-        if (this.treeDict[aggregatedBy] && this.repDict[instanceOf]) {
-          this.treeDict[aggregatedBy].isLeaf = true;
-          this.treeDict[aggregatedBy].leafParts.push(this.repDict[instanceOf]);
-        }
+        deferred.instanceReps.push(el);
       } else if (type === 'Instance3DType' || type === 'Instance3D') {
-        const els = el.getElementsByTagName('*');
-        const aggregatedBy = parseInt(els[0]?.textContent);
-        const instanceOf = parseInt(els[1]?.textContent);
-        const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
-        if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
-          this.treeDict[aggregatedBy].children.push(this.treeDict[instanceOf]);
-          this.treeDict[aggregatedBy].childMatrices.push(matrixStr);
-        }
+        deferred.instance3Ds.push(el);
       }
     }
+
+    // ═══ 第二遍：处理 Instance3D 和 InstanceRep（此时字典已完整）═══
+    for (const el of deferred.instance3Ds) {
+      const els = el.getElementsByTagName('*');
+      const aggregatedBy = parseInt(els[0]?.textContent);
+      const instanceOf = parseInt(els[1]?.textContent);
+      const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
+      if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
+        this.treeDict[aggregatedBy].children.push(this.treeDict[instanceOf]);
+        this.treeDict[aggregatedBy].childMatrices.push(matrixStr);
+      }
+    }
+
+    let leafCount = 0;
+    for (const el of deferred.instanceReps) {
+      const els = el.getElementsByTagName('*');
+      const aggregatedBy = parseInt(els[0]?.textContent);
+      const instanceOf = parseInt(els[1]?.textContent);
+      if (this.treeDict[aggregatedBy] && this.repDict[instanceOf]) {
+        this.treeDict[aggregatedBy].isLeaf = true;
+        this.treeDict[aggregatedBy].leafParts.push(this.repDict[instanceOf]);
+        leafCount++;
+      }
+    }
+    console.log('📊 解析完成: ' + Object.keys(this.treeDict).length + ' 个结构节点, ' +
+      Object.keys(this.repDict).length + ' 个几何引用, ' + leafCount + ' 个零件绑定' +
+      (this.isUVR ? ' (UVR二进制格式，渲染球体占位)' : ''));
   }
 
   buildTree() {
@@ -428,93 +455,84 @@ class ThreeDXMLParser {
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, 'text/xml');
 
-    // 结构: XMLRepresentation → Root → Rep(s)
-    const rootEl = doc.documentElement.children[0]; // <Root>
-    if (!rootEl) { console.warn('3DRep 无 Root 元素: ' + fileName); return []; }
-    const repEls = rootEl.children; // <Rep> elements
+    // 辅助：获取元素 localName（兼容命名空间）
+    const _tag = (el) => (el.localName || el.tagName || '').replace(/^.*:/, '');
+    // 辅助：获取 xsi:type 值
+    const _xsiType = (el) => el.getAttribute('xsi:type') ||
+      el.getAttributeNS('http://www.w3.org/2001/XMLSchema-instance', 'type') || '';
+
+    // 迭代查找所有 PolygonalRepType 的 <Rep> 节点（用栈避免递归溢出）
+    const polyReps = [];
+    const stack = [doc.documentElement]; // 从 <XMLRepresentation> 开始
+    while (stack.length > 0) {
+      const node = stack.pop();
+      for (const child of node.children || []) {
+        const tag = _tag(child);
+        if (tag === 'Rep') {
+          const xt = _xsiType(child);
+          if (xt === 'PolygonalRepType' || xt === 'PolygonalRep') {
+            polyReps.push(child);
+          } else {
+            stack.push(child); // BagRepType → 深入
+          }
+        } else if (tag === 'Root') {
+          stack.push(child);
+        }
+      }
+    }
+
+    if (polyReps.length === 0 && this._dbgOnce !== fileName) {
+      this._dbgOnce = fileName;
+      console.warn('⚠️ parse3DRep: 未找到 PolygonalRepType, 文件=' + fileName +
+        ', 长度=' + content.length + ', 头=' + content.substring(0, 100));
+    }
+
+    const defaultColor = this._makeDefaultColor(fileName);
     const instances = [];
-    for (const repEl of repEls) {
-      const tag = repEl.tagName;
-      if (tag !== 'Rep' && !tag.endsWith(':Rep')) continue;
 
-      // Faces 和 VertexBuffer：按标签名查找（不依赖顺序，兼容命名空间）
-      let facesEl = null, vertexBufEl = null;
-      for (const child of repEl.children) {
-        const t = child.tagName;
-        if (t === 'Faces' || t.endsWith(':Faces')) facesEl = child;
-        else if (t === 'VertexBuffer' || t.endsWith(':VertexBuffer')) vertexBufEl = child;
-      }
-      if (!facesEl || !vertexBufEl) continue;
+    // 安全批量追加：避免 push(...largeArray) 栈溢出
+    const _pushAll = (target, source) => {
+      for (let i = 0; i < source.length; i++) target.push(source[i]);
+    };
 
-      // 解析面片
-      const colorRanges = [];
-      const allTriangles = [];
-      let oldColor = null;
-      const defaultColor = this._makeDefaultColor(fileName);
+    for (const polyRep of polyReps) {
+      // ── 收集 Faces（可能在 PolygonalLOD 内）和 VertexBuffer ──
+      let vertexBufEl = null;
+      let facesEl = null;              // 直接 <Faces>（无LOD层级）
+      const lodFaces = [];            // { accuracy, facesEl }
 
-      for (const faceEl of facesEl.children) {
-        const triStr = faceEl.getAttribute('triangles') || '';
-        const indices = triStr.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
-        if (indices.length === 0) continue;
-
-        // Color 元素路径: Face → SurfaceAttributes → Color
-        let rgba = null;
-        try {
-          let surfaceAttr = null, colorEl = null;
-          for (const child of faceEl.children) {
-            const t = child.tagName;
-            if (t === 'SurfaceAttributes' || t.endsWith(':SurfaceAttributes')) surfaceAttr = child;
-          }
-          if (surfaceAttr) {
-            for (const child of surfaceAttr.children) {
-              const t = child.tagName;
-              if (t === 'Color' || t.endsWith(':Color')) { colorEl = child; break; }
+      for (const child of polyRep.children) {
+        const t = _tag(child);
+        if (t === 'VertexBuffer') {
+          vertexBufEl = child;
+        } else if (t === 'Faces') {
+          facesEl = child;
+        } else if (t === 'PolygonalLOD') {
+          const acc = parseFloat(child.getAttribute('accuracy') || 'Infinity');
+          for (const lodChild of child.children) {
+            if (_tag(lodChild) === 'Faces') {
+              lodFaces.push({ accuracy: acc, facesEl: lodChild });
             }
           }
-          if (colorEl) {
-            const rAttr = colorEl.getAttribute('red');
-            const gAttr = colorEl.getAttribute('green');
-            const bAttr = colorEl.getAttribute('blue');
-            const aAttr = colorEl.getAttribute('alpha');
-            // 如果 RGB 缺失（某些转换器只写alpha），用默认色
-            if (rAttr !== null && gAttr !== null && bAttr !== null) {
-              const r = parseFloat(rAttr);
-              const g = parseFloat(gAttr);
-              const b = parseFloat(bAttr);
-              const a = parseFloat(aAttr || '1');
-              if (!isNaN(r) && !isNaN(g) && !isNaN(b) && !isNaN(a)) {
-                rgba = [r, g, b, a];
-              }
-            } else {
-              // 仅 alpha 已知，RGB 用默认色
-              const a = parseFloat(aAttr || '1');
-              rgba = [defaultColor[0], defaultColor[1], defaultColor[2], isNaN(a) ? 1 : a];
-            }
-          }
-        } catch (e) { /* no color */ }
-        if (!rgba) {
-          rgba = [...defaultColor];
         }
-
-        const colorKey = rgba.join(',');
-        if (colorKey !== oldColor) {
-          colorRanges.push({ start: allTriangles.length, color: [...rgba] });
-          oldColor = colorKey;
-        }
-        allTriangles.push(...indices);
-      }
-      if (colorRanges.length === 0 || allTriangles.length === 0) continue;
-      for (let i = 0; i < colorRanges.length; i++) {
-        colorRanges[i].end = (i + 1 < colorRanges.length)
-          ? colorRanges[i + 1].start : allTriangles.length;
       }
 
-      // 解析顶点: <Positions> 和 <Normals>（逗号分隔浮点数）
+      if (!vertexBufEl) continue;
+
+      // 优先使用直接 <Faces>，否则选用最高精度的 LOD（accuracy值最小）
+      let useFacesEl = facesEl;
+      if (!useFacesEl && lodFaces.length > 0) {
+        lodFaces.sort((a, b) => a.accuracy - b.accuracy);
+        useFacesEl = lodFaces[0].facesEl;
+      }
+      if (!useFacesEl) continue;
+
+      // ── 解析顶点 ──
       let positionsEl = null, normalsEl = null;
       for (const child of vertexBufEl.children) {
-        const t = child.tagName;
-        if (t === 'Positions' || t.endsWith(':Positions')) positionsEl = child;
-        else if (t === 'Normals' || t.endsWith(':Normals')) normalsEl = child;
+        const t = _tag(child);
+        if (t === 'Positions') positionsEl = child;
+        else if (t === 'Normals') normalsEl = child;
       }
       if (!positionsEl) continue;
 
@@ -527,9 +545,93 @@ class ThreeDXMLParser {
         normals = nrmStrs.map(parseFloat).filter(n => !isNaN(n));
       }
 
-      if (positions.length < 9) continue; // 至少需要一个三角形
+      if (positions.length < 9) continue;
+
+      // ── 解析面片（支持 triangles / strips / fans）──
+      const colorRanges = [];
+      const allTriangles = [];
+      let oldColor = null;
+
+      for (const faceEl of useFacesEl.children) {
+        if (_tag(faceEl) !== 'Face') continue;
+
+        const indices = [];
+
+        // 1) 普通三角形列表
+        const triStr = faceEl.getAttribute('triangles') || '';
+        if (triStr.trim()) {
+          _pushAll(indices, triStr.trim().split(/\s+/).map(Number).filter(n => !isNaN(n)));
+        }
+
+        // 2) 三角形条带（逗号分隔多个 strip，奇数三角形翻转绕序）
+        const stripStr = faceEl.getAttribute('strips') || '';
+        if (stripStr.trim()) {
+          const strips = stripStr.split(',').filter(s => s.trim());
+          for (const strip of strips) {
+            const si = strip.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+            for (let i = 0; i < si.length - 2; i++) {
+              if (i % 2 === 0) {
+                indices.push(si[i], si[i + 1], si[i + 2]);
+              } else {
+                indices.push(si[i + 1], si[i], si[i + 2]);
+              }
+            }
+          }
+        }
+
+        // 3) 三角形扇（逗号分隔多个 fan，第一个顶点为共享中心）
+        const fanStr = faceEl.getAttribute('fans') || '';
+        if (fanStr.trim()) {
+          const fans = fanStr.split(',').filter(s => s.trim());
+          for (const fan of fans) {
+            const fi = fan.trim().split(/\s+/).map(Number).filter(n => !isNaN(n));
+            for (let i = 1; i < fi.length - 1; i++) {
+              indices.push(fi[0], fi[i], fi[i + 1]);
+            }
+          }
+        }
+
+        if (indices.length === 0) continue;
+
+        // ── 颜色 ──
+        const extractColor = () => {
+          for (const c1 of faceEl.children) {
+            if (_tag(c1) !== 'SurfaceAttributes') continue;
+            for (const c2 of c1.children) {
+              if (_tag(c2) === 'Color') {
+                const r = parseFloat(c2.getAttribute('red'));
+                const g = parseFloat(c2.getAttribute('green'));
+                const b = parseFloat(c2.getAttribute('blue'));
+                const a = parseFloat(c2.getAttribute('alpha') || '1');
+                if (!isNaN(r) && !isNaN(g) && !isNaN(b) && !isNaN(a)) {
+                  return [r, g, b, a];
+                }
+              }
+            }
+          }
+          return null;
+        };
+        let rgba = extractColor();
+        if (!rgba) rgba = [...defaultColor];
+
+        const colorKey = rgba.join(',');
+        if (colorKey !== oldColor) {
+          colorRanges.push({ start: allTriangles.length, color: [...rgba] });
+          oldColor = colorKey;
+        }
+        _pushAll(allTriangles, indices);
+      }
+
+      if (colorRanges.length === 0 || allTriangles.length === 0) continue;
+      for (let i = 0; i < colorRanges.length; i++) {
+        colorRanges[i].end = (i + 1 < colorRanges.length)
+          ? colorRanges[i + 1].start : allTriangles.length;
+      }
 
       instances.push({ positions, normals, triangles: allTriangles, colorRanges });
+    }
+    if (polyReps.length > 0) {
+      console.log('  🔧 ' + fileName + ': ' + polyReps.length + ' 个PolygonalRep, ' + instances.length + ' 个几何实例');
     }
     return instances;
   }
@@ -587,7 +689,10 @@ class ThreeDXMLParser {
 // ═══════════════════════════════════════════════════
 const sharedGeomCache = new Map(); // fileName → [{geometry, materials[]}]
 
+let _bmtMaxDepth = 0;
 function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path = '', depth = 0) {
+  if (depth > _bmtMaxDepth) { _bmtMaxDepth = depth; }
+  if (depth > 200) { console.warn('⚠️ buildModelFromTree深度=' + depth + ', 节点=' + treeNode.name); }
   const currentPath = path ? path + '/' + treeNode.name : treeNode.name;
   const group = new THREE.Group();
   group.name = treeNode.name;
@@ -623,7 +728,6 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
           mesh.name = leafPart.name || '3MF';
           mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
           group.add(mesh);
-          if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, mesh);
         }
       } else if (parser.isUVR) {
         // ──── UVR 二进制 → 渲染球体（焊点球）────
@@ -644,7 +748,6 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
           mesh.name = leafPart.name || treeNode.name;
           mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
           group.add(mesh);
-          if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, mesh);
         }
       } else {
         // ──── TESSELLATED XML → 正常解析 ────
@@ -692,8 +795,9 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
         mesh.name = leafPart.name || treeNode.name;
         mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
         group.add(mesh);
-        if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, mesh);
       }
+      // 始终映射到 group（包含该节点所有mesh），而非单个mesh
+      if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, group);
     }
   } else {
     // 非叶子：递归处理子节点
@@ -829,7 +933,8 @@ function selectTreeNode(nodeId, nodeDiv) {
     animateCamera();
   }
 
-  // 添加高亮叠加层
+  // 添加高亮叠加层（先确保matrixWorld最新）
+  scene.updateMatrixWorld();
   obj.traverse((child) => {
     if (child.isMesh) {
       const hlMesh = new THREE.Mesh(child.geometry, highlightMaterial.clone());
@@ -903,7 +1008,15 @@ async function openFiles(fileList) {
 
     // 构建 3D 模型
     loadingText.textContent = '正在渲染模型...';
-    buildModelFromTree(tree, parser, rootGroup, null);
+    console.log('🔨 开始构建模型, 根节点=' + tree.name + ', isLeaf=' + tree.isLeaf);
+    try {
+      buildModelFromTree(tree, parser, rootGroup, null);
+      console.log('✅ buildModelFromTree 完成, rootGroup.children=' + rootGroup.children.length +
+        ', 最大树深度=' + _bmtMaxDepth);
+    } catch (e) {
+      console.error('❌ buildModelFromTree 失败:', e.message || e, e.stack);
+      throw e;
+    }
 
     // 保存树数据
     modelTreeData = tree;
@@ -1022,6 +1135,39 @@ document.getElementById('btn-fit').addEventListener('click', () => {
   }
 });
 
+// 单击/双击高亮（单击选零件，双击选零件+聚焦）
+let _clickStart = { x: 0, y: 0 };
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  _clickStart = { x: e.clientX, y: e.clientY };
+});
+renderer.domElement.addEventListener('pointerup', (e) => {
+  const dx = e.clientX - _clickStart.x;
+  const dy = e.clientY - _clickStart.y;
+  if (Math.sqrt(dx * dx + dy * dy) > 4) return; // 拖拽旋转，不算点击
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  const mouse = new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  const raycaster = new THREE.Raycaster();
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(rootGroup.children, true);
+  if (intersects.length > 0) {
+    let obj = intersects[0].object;
+    while (obj) {
+      if (obj.userData && obj.userData.treeNodeId && entityMap.has(obj.userData.treeNodeId)) {
+        const nodeId = obj.userData.treeNodeId;
+        const nodeDiv = treeList.querySelector(`[data-node-id="${nodeId}"]`);
+        selectTreeNode(nodeId, nodeDiv);
+        if (nodeDiv) nodeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      obj = obj.parent;
+    }
+  }
+});
+
 // 双击聚焦
 renderer.domElement.addEventListener('dblclick', (e) => {
   // 射线检测点击的对象
@@ -1085,7 +1231,7 @@ document.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropaga
 document.addEventListener('drop', (e) => {
   e.preventDefault(); e.stopPropagation();
   const files = Array.from(e.dataTransfer.files);
-  const validFiles = files.filter(f => /\.(3dxml|3DRep|3drep)$/i.test(f.name));
+  const validFiles = files.filter(f => /\.(3dxml|3DRep|3drep|3mf|3MF)$/i.test(f.name));
   if (validFiles.length > 0) openFiles(validFiles);
 });
 
