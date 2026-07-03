@@ -360,10 +360,17 @@ class ThreeDXMLParser {
       if (type === 'Reference3DType' || type === 'Reference3D') {
         const id = parseInt(el.getAttribute('id'));
         const name = el.getAttribute('name') || '';
+        // 提取 V_Name 作为默认显示名（中文名称）
+        let vname = name;
+        for (const c of el.children) {
+          const ct = (c.localName || c.tagName || '').replace(/^.*:/, '');
+          if (ct === 'V_Name') { vname = c.textContent?.trim() || name; break; }
+        }
         this.treeDict[id] = {
           id, name, type: 'assembly',
           children: [], childMatrices: [],
-          isLeaf: false, leafParts: []
+          isLeaf: false, leafParts: [],
+          label: vname  // 默认显示 V_Name，后续Instance3D覆盖为实例名
         };
       } else if (type === 'ReferenceRepType' || type === 'ReferenceRep') {
         const id = parseInt(el.getAttribute('id'));
@@ -386,9 +393,14 @@ class ThreeDXMLParser {
       const aggregatedBy = parseInt(els[0]?.textContent);
       const instanceOf = parseInt(els[1]?.textContent);
       const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
+      const instanceName = el.getAttribute('name') || '';
       if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
         this.treeDict[aggregatedBy].children.push(this.treeDict[instanceOf]);
         this.treeDict[aggregatedBy].childMatrices.push(matrixStr);
+        // 用实例名覆盖默认名（如"凸焊螺钉.2"而不是零件号"09119-06015-S111"）
+        if (instanceName) {
+          this.treeDict[instanceOf].label = instanceName;
+        }
       }
     }
 
@@ -852,7 +864,7 @@ function buildTreeUI(node, container, depth = 0) {
   // 名称
   const nameSpan = document.createElement('span');
   nameSpan.className = 'name';
-  nameSpan.textContent = node.name || '(未命名)';
+  nameSpan.textContent = node.label || node.name || '(未命名)';
   nodeDiv.appendChild(nameSpan);
 
   // 点击事件
