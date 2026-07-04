@@ -25,7 +25,7 @@
   --safe-bottom: env(safe-area-inset-bottom, 12px);
 }
 * { margin:0; padding:0; box-sizing:border-box; }
-html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
+html, body { width:100%; height:100%; overflow:hidden; overscroll-behavior:none; background:var(--bg); font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; -webkit-tap-highlight-color:transparent; touch-action:manipulation; }
 #canvas { position:fixed; top:0; left:0; width:100%; height:100%; z-index:1; }
 
 /* 顶栏 */
@@ -1346,6 +1346,12 @@ btnInstall.addEventListener('click', async () => {
 
 // 支持拖放打开
 // ═══════════════════════════════════════════════════
+// 禁止下拉刷新
+document.addEventListener('touchmove', (e) => {
+  if (e.target.closest('#tree-list')) return;
+  e.preventDefault();
+}, { passive: false });
+
 document.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); });
 document.addEventListener('drop', (e) => {
   e.preventDefault(); e.stopPropagation();
