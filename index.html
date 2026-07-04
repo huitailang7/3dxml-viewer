@@ -404,28 +404,8 @@ class ThreeDXMLParser {
       }
     }
 
-    // ═══ 第二遍：处理 Instance3D 和 InstanceRep（此时字典已完整）═══
-    for (const el of deferred.instance3Ds) {
-      const els = el.getElementsByTagName('*');
-      const aggregatedBy = parseInt(els[0]?.textContent);
-      const instanceOf = parseInt(els[1]?.textContent);
-      const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
-      const instanceName = el.getAttribute('name') || '';
-      if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
-        // 浅克隆：同一零件多实例时，每个实例保留独立的 label
-        // 避免后处理的实例名覆盖前面的（焊点球常见场景）
-        let childNode = this.treeDict[instanceOf];
-        if (instanceName && instanceName !== childNode.label) {
-          childNode = Object.assign({}, childNode);
-          childNode.label = instanceName;
-        } else if (instanceName) {
-          childNode.label = instanceName;
-        }
-        this.treeDict[aggregatedBy].children.push(childNode);
-        this.treeDict[aggregatedBy].childMatrices.push(matrixStr);
-      }
-    }
-
+    // ═══ 第二遍：先 InstanceRep（标记叶子），再 Instance3D（建立父子+克隆）═══
+    // 必须 InstanceRep 在前：克隆时需要 isLeaf/leafParts 已经就位
     let leafCount = 0;
     for (const el of deferred.instanceReps) {
       const els = el.getElementsByTagName('*');
@@ -435,6 +415,26 @@ class ThreeDXMLParser {
         this.treeDict[aggregatedBy].isLeaf = true;
         this.treeDict[aggregatedBy].leafParts.push(this.repDict[instanceOf]);
         leafCount++;
+      }
+    }
+
+    for (const el of deferred.instance3Ds) {
+      const els = el.getElementsByTagName('*');
+      const aggregatedBy = parseInt(els[0]?.textContent);
+      const instanceOf = parseInt(els[1]?.textContent);
+      const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
+      const instanceName = el.getAttribute('name') || '';
+      if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
+        // 浅克隆：同一零件多实例时，每个实例保留独立的 label
+        let childNode = this.treeDict[instanceOf];
+        if (instanceName && instanceName !== childNode.label) {
+          childNode = Object.assign({}, childNode);
+          childNode.label = instanceName;
+        } else if (instanceName) {
+          childNode.label = instanceName;
+        }
+        this.treeDict[aggregatedBy].children.push(childNode);
+        this.treeDict[aggregatedBy].childMatrices.push(matrixStr);
       }
     }
     console.log('📊 解析完成: ' + Object.keys(this.treeDict).length + ' 个结构节点, ' +
