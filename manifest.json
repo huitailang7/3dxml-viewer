@@ -11,5 +11,19 @@
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
     { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "/",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [{ "name": "file", "accept": [".3dxml", ".3DXML", ".3DRep", ".3mf", ".3MF"] }]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": { ".3dxml": [".3dxml", ".3DXML"], ".3DRep": [".3DRep"], ".3mf": [".3mf", ".3MF"] }
+    }
   ]
 }

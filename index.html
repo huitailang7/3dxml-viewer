@@ -56,11 +56,12 @@ html, body { width:100%; height:100%; overflow:hidden; overscroll-behavior:none;
 #tree-panel .head { padding:16px 14px 12px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; gap:8px; flex-shrink:0; }
 #tree-panel .head span { flex:1; color:var(--text); font-size:15px; font-weight:600; }
 #tree-panel .head button { width:32px; height:32px; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:var(--text); font-size:16px; cursor:pointer; }
-#tree-list { flex:1; overflow-x:scroll; overflow-y:auto; padding:8px 0; -webkit-overflow-scrolling:touch; }
-#tree-list::-webkit-scrollbar { width:4px; height:6px; }
-#tree-list::-webkit-scrollbar-track { background:rgba(255,255,255,0.05); border-radius:3px; }
-#tree-list::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.25); border-radius:3px; }
+#tree-list { flex:1; overflow:scroll; padding:8px 0; -webkit-overflow-scrolling:touch; }
+#tree-list::-webkit-scrollbar { width:5px; height:8px; }
+#tree-list::-webkit-scrollbar-track { background:rgba(255,255,255,0.05); border-radius:4px; }
+#tree-list::-webkit-scrollbar-thumb { background:var(--accent); border-radius:4px; opacity:0.6; }
 #tree-list::-webkit-scrollbar-corner { background:transparent; }
+#tree-list-inner { min-width:max-content; }
 .tree-node { display:flex; align-items:center; padding:10px 14px; cursor:pointer; border-left:3px solid transparent; transition:background 0.15s; user-select:none; -webkit-user-select:none; min-width:max-content; }
 .tree-node:active { background:rgba(255,255,255,0.06); }
 .tree-node.selected { background:rgba(0,204,68,0.15); border-left-color:#00cc44; }
@@ -125,7 +126,7 @@ html, body { width:100%; height:100%; overflow:hidden; overscroll-behavior:none;
     <span>📋 结构树</span>
     <button id="btn-tree-close">✕</button>
   </div>
-  <div id="tree-list"></div>
+  <div id="tree-list"><div id="tree-list-inner"></div></div>
   </div>
 
 <!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
@@ -156,7 +157,7 @@ const canvasEl = document.getElementById('canvas');
 const loadingEl = document.getElementById('loading');
 const loadingText = document.getElementById('loading-text');
 const titleText = document.getElementById('title-text');
-const treeList = document.getElementById('tree-list');
+const treeList = document.getElementById('tree-list-inner');
 const treePanel = document.getElementById('tree-panel');
 const overlay = document.getElementById('overlay');
 const gestureHint = document.getElementById('gesture-hint');
@@ -1237,7 +1238,7 @@ renderer.domElement.addEventListener('pointerup', (e) => {
         if (nodeDiv) {
           // 自动展开所有折叠的父节点
           let parent = nodeDiv.parentElement;
-          while (parent && parent.id !== 'tree-list') {
+          while (parent && !parent.id.startsWith('tree-list')) {
             if (parent.classList.contains('tree-children')) {
               parent.classList.remove('collapsed');
               const arrow = parent.previousElementSibling?.querySelector('.arrow');
@@ -1277,7 +1278,7 @@ renderer.domElement.addEventListener('dblclick', (e) => {
         if (nodeDiv) {
           // 自动展开所有折叠的父节点
           let parent = nodeDiv.parentElement;
-          while (parent && parent.id !== 'tree-list') {
+          while (parent && !parent.id.startsWith('tree-list')) {
             if (parent.classList.contains('tree-children')) {
               parent.classList.remove('collapsed');
               const arrow = parent.previousElementSibling?.querySelector('.arrow');
