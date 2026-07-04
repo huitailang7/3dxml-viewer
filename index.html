@@ -1276,15 +1276,29 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   if (intersects.length > 0) {
     let obj = intersects[0].object;
     while (obj) {
-      if (obj.userData && obj.userData.treeNodeId && entityMap.has(obj.userData.treeNodeId)) {
+      if (obj.userData && obj.userData.treeNodeId != null) {
         const nodeId = obj.userData.treeNodeId;
         const nodeDiv = treeList.querySelector(`[data-node-id="${nodeId}"]`);
+        if (!nodeDiv) console.warn('点击零件未找到树节点: id=' + nodeId);
         selectTreeNode(nodeId, nodeDiv);
-        if (nodeDiv) nodeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (nodeDiv) {
+          // 自动展开所有折叠的父节点
+          let parent = nodeDiv.parentElement;
+          while (parent && parent.id !== 'tree-list') {
+            if (parent.classList.contains('tree-children')) {
+              parent.classList.remove('collapsed');
+              const arrow = parent.previousElementSibling?.querySelector('.arrow');
+              if (arrow) arrow.classList.add('expanded');
+            }
+            parent = parent.parentElement;
+          }
+          nodeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         return;
       }
       obj = obj.parent;
     }
+    console.warn('点击零件未找到treeNodeId');
   }
 });
 
@@ -1303,12 +1317,23 @@ renderer.domElement.addEventListener('dblclick', (e) => {
     // 找到最接近的带 treeNodeId 的祖先
     let obj = intersects[0].object;
     while (obj) {
-      if (obj.userData && obj.userData.treeNodeId && entityMap.has(obj.userData.treeNodeId)) {
+      if (obj.userData && obj.userData.treeNodeId != null) {
         const nodeId = obj.userData.treeNodeId;
         const nodeDiv = treeList.querySelector(`[data-node-id="${nodeId}"]`);
         selectTreeNode(nodeId, nodeDiv);
-        // 滚动到可见
-        if (nodeDiv) nodeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (nodeDiv) {
+          // 自动展开所有折叠的父节点
+          let parent = nodeDiv.parentElement;
+          while (parent && parent.id !== 'tree-list') {
+            if (parent.classList.contains('tree-children')) {
+              parent.classList.remove('collapsed');
+              const arrow = parent.previousElementSibling?.querySelector('.arrow');
+              if (arrow) arrow.classList.add('expanded');
+            }
+            parent = parent.parentElement;
+          }
+          nodeDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
         return;
       }
       obj = obj.parent;
