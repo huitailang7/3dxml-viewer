@@ -109,18 +109,12 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
     <div style="font-size:48px;margin-bottom:8px;">📂</div>
     <div style="font-size:22px;font-weight:700;margin-bottom:4px;">3DXML 查看器</div>
     <div style="font-size:13px;color:var(--text2);margin-bottom:24px;">请登录后使用</div>
-  </div>
-  <div id="auth-form" style="display:flex;flex-direction:column;gap:10px;width:280px;">
-    <input id="auth-email" type="email" placeholder="邮箱" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.06);color:var(--text);font-size:14px;outline:none;">
-    <input id="auth-pwd" type="password" placeholder="密码" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.06);color:var(--text);font-size:14px;outline:none;">
-    <div id="auth-err" style="color:var(--accent);font-size:12px;min-height:16px;"></div>
-    <button id="auth-login-btn" style="padding:10px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">登录</button>
-    <button id="auth-reg-btn" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:var(--text);font-size:14px;cursor:pointer;">注册新账号</button>
-  </div>
-  <div id="auth-user" style="display:none;text-align:center;color:var(--text);">
-    <div style="font-size:16px;margin-bottom:4px;">✅ 已登录</div>
-    <div id="auth-user-email" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
-    <button id="auth-logout-btn" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:var(--text2);font-size:13px;cursor:pointer;">退出登录</button>
+    <button id="auth-login-btn" style="padding:12px 32px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;">点击登录</button>
+    <div id="auth-user" style="display:none;text-align:center;color:var(--text);margin-top:16px;">
+      <div style="font-size:16px;margin-bottom:4px;">✅ 已登录</div>
+      <div id="auth-user-email" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
+      <button id="auth-logout-btn" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:var(--text2);font-size:13px;cursor:pointer;">退出登录</button>
+    </div>
   </div>
 </div>
 
@@ -1414,99 +1408,57 @@ console.log('  👆 单指旋转 | 双指缩放/平移 | 双击聚焦零件');
 console.log('  ⌨  快捷键: F=适应视图 T=结构树 Esc=关闭面板 0=取消选中');
 console.log('  💡 如果模型无几何体，请同时多选 .3dxml 和 .3DRep 文件');
 // ═══════════════════════════════════════════════════
-// Firebase 认证逻辑
+// CloudBase 认证（使用自带登录页）
 // ═══════════════════════════════════════════════════
 const authOverlay = document.getElementById('auth-overlay');
-const authForm = document.getElementById('auth-form');
-const authUser = document.getElementById('auth-user');
-const authEmail = document.getElementById('auth-email');
-const authPwd = document.getElementById('auth-pwd');
-const authErr = document.getElementById('auth-err');
 const authLoginBtn = document.getElementById('auth-login-btn');
-const authRegBtn = document.getElementById('auth-reg-btn');
+const authUser = document.getElementById('auth-user');
 const authLogoutBtn = document.getElementById('auth-logout-btn');
 const authUserEmail = document.getElementById('auth-user-email');
 
-// 显示错误
-function showAuthErr(msg) {
-  authErr.textContent = msg;
-  setTimeout(() => { authErr.textContent = ''; }, 4000);
-}
-
-// 本地开发直接跳过登录
-if (IS_LOCAL) {
-  authOverlay.style.display = 'none';
-} else {
-
-// 登录
-authLoginBtn.addEventListener('click', async () => {
-  const email = authEmail.value.trim();
-  const pwd = authPwd.value;
-  if (!email || !pwd) { showAuthErr('请输入邮箱和密码'); return; }
-  try {
-    authLoginBtn.disabled = true;
-    authLoginBtn.textContent = '登录中...';
-    await _tcb.auth().signInWithEmailAndPassword(email, pwd);
-  } catch (e) {
-    showAuthErr(e.message || '登录失败');
-  } finally {
-    authLoginBtn.disabled = false;
-    authLoginBtn.textContent = '登录';
-  }
-});
-
-// 注册（需先在CloudBase控制台启用邮箱登录）
-authRegBtn.addEventListener('click', async () => {
-  const email = authEmail.value.trim();
-  const pwd = authPwd.value;
-  if (!email || !pwd) { showAuthErr('请输入邮箱和密码'); return; }
-  if (pwd.length < 6) { showAuthErr('密码至少6位'); return; }
-  try {
-    authRegBtn.disabled = true;
-    authRegBtn.textContent = '注册中...';
-    await _tcb.auth().signUpWithEmailAndPassword(email, pwd);
-  } catch (e) {
-    showAuthErr(e.message || '注册失败');
-  } finally {
-    authRegBtn.disabled = false;
-    authRegBtn.textContent = '注册新账号';
-  }
-});
-
-// 退出
-authLogoutBtn.addEventListener('click', async () => {
-  await _tcb.auth().signOut();
-  showAuth();
-});
-
-// 回车登录
-authPwd.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') authLoginBtn.click();
-});
-
-// 显示/隐藏登录遮罩
 function showAuth() {
-  authForm.style.display = 'flex';
+  authLoginBtn.parentElement.style.display = 'block';
   authUser.style.display = 'none';
   authOverlay.style.display = 'flex';
   authOverlay.style.opacity = '1';
 }
 function hideAuth(email) {
-  authForm.style.display = 'none';
+  authLoginBtn.parentElement.style.display = 'none';
   authUser.style.display = 'block';
   authUserEmail.textContent = email;
   setTimeout(() => {
     authOverlay.style.opacity = '0';
     setTimeout(() => { authOverlay.style.display = 'none'; }, 400);
-  }, 600);
+  }, 400);
 }
 
-// 检查登录状态
-const tcbLoginState = await _tcb.auth().getLoginState();
-if (tcbLoginState) hideAuth(tcbLoginState.user.email || '');
-else showAuth();
+if (IS_LOCAL) {
+  authOverlay.style.display = 'none';
+} else {
+  // 点击登录 → 跳转 CloudBase 自带登录页
+  authLoginBtn.addEventListener('click', () => {
+    const redirect = encodeURIComponent(location.href);
+    location.href = `https://${TCB_ENV}.tcloudbaseapp.com/__auth/?redirect=${redirect}`;
+  });
 
-} // end IS_LOCAL check
+  // 退出
+  authLogoutBtn.addEventListener('click', async () => {
+    await _tcb.auth().signOut();
+    showAuth();
+  });
+
+  // 检查是否从登录页跳回
+  const tcbLoginState = _tcb ? await _tcb.auth().getLoginState() : null;
+  if (tcbLoginState) {
+    hideAuth(tcbLoginState.user?.email || '');
+    // 清除URL中的登录参数
+    if (location.hash.includes('access_token')) {
+      history.replaceState(null, '', location.pathname);
+    }
+  } else {
+    showAuth();
+  }
+}
 
 // 注册 Service Worker（离线缓存）
 if ('serviceWorker' in navigator) {
