@@ -153,26 +153,23 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 <!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
 <input type="file" id="file-input" accept=".3dxml,.3DXML,.3DRep,.3drep,.3mf,.3MF,.stp,.step" multiple style="display:none">
 
-<!-- LeanCloud SDK -->
-<script src="https://cdn.jsdelivr.net/npm/leancloud-storage@4.15.0/dist/av-min.js"></script>
+<!-- 腾讯云 CloudBase SDK -->
+<script src="https://imgcache.qq.com/qcloud/cloudbase-js-sdk/2.1.0/cloudbase.full.js"></script>
 <script>
-// ═══════ 粘贴你的 LeanCloud 密钥到这里 ═══════
-const LC_APP_ID = '';   // AppID
-const LC_APP_KEY = '';  // AppKey
+// ═══════ 粘贴你的 CloudBase 环境ID ═══════
+const TCB_ENV = '';  // 例如 '3dxml-xxx'
 // ═══════════════════════════════════════════
 
-AV.init({ appId: LC_APP_ID, appKey: LC_APP_KEY });
+const tcbApp = cloudbase.init({ env: TCB_ENV });
+const tcbAuth = tcbApp.auth();
+const tcbDb = tcbApp.database();
 
-window._lcLog = async (data) => {
+// 统计记录
+window._tcbLog = async (data) => {
   try {
-    const Log = AV.Object.extend('ModelViewLog');
-    const log = new Log();
-    await log.save(data);
+    await tcbDb.collection('model_views').add(data);
   } catch (e) { /* 静默 */ }
 };
-
-window._lcUser = AV.User;
-window._lcCurrent = () => AV.User.current();
 </script>
 
 <!-- JSZip -->
@@ -1176,12 +1173,12 @@ async function openFiles(fileList) {
 
     // 记录使用统计
     const statsFile = xmlFile || files[0];
-    if (window._lcLog && statsFile) {
-      const user = AV.User.current();
-      window._lcLog({
-        email: user?.get('email') || 'unknown',
+    if (window._tcbLog && statsFile) {
+      const loginState = await tcbAuth.getLoginState();
+      window._tcbLog({
+        email: loginState?.user?.email || 'unknown',
         file: statsFile.name,
-        size: Math.round(statsFile.size / 1024) + 'KB',
+        sizeKB: Math.round(statsFile.size / 1024),
         nodes: Object.keys(parser.treeDict).length,
         refs: Object.keys(parser.repDict).length
       }).catch(() => {});
@@ -1440,16 +1437,16 @@ authLoginBtn.addEventListener('click', async () => {
   try {
     authLoginBtn.disabled = true;
     authLoginBtn.textContent = '登录中...';
-    await AV.User.logIn(email, pwd);
+    await tcbAuth.signInWithEmailAndPassword(email, pwd);
   } catch (e) {
-    showAuthErr(e.code === 211 ? '邮箱未注册' : e.code === 210 ? '密码错误' : (e.message || '登录失败'));
+    showAuthErr(e.message || '登录失败');
   } finally {
     authLoginBtn.disabled = false;
     authLoginBtn.textContent = '登录';
   }
 });
 
-// 注册
+// 注册（需先在CloudBase控制台启用邮箱登录）
 authRegBtn.addEventListener('click', async () => {
   const email = authEmail.value.trim();
   const pwd = authPwd.value;
@@ -1458,11 +1455,9 @@ authRegBtn.addEventListener('click', async () => {
   try {
     authRegBtn.disabled = true;
     authRegBtn.textContent = '注册中...';
-    const user = new AV.User();
-    user.set({ username: email, email: email, password: pwd });
-    await user.signUp();
+    await tcbAuth.signUpWithEmailAndPassword(email, pwd);
   } catch (e) {
-    showAuthErr(e.code === 203 ? '该邮箱已注册' : (e.message || '注册失败'));
+    showAuthErr(e.message || '注册失败');
   } finally {
     authRegBtn.disabled = false;
     authRegBtn.textContent = '注册新账号';
@@ -1471,7 +1466,7 @@ authRegBtn.addEventListener('click', async () => {
 
 // 退出
 authLogoutBtn.addEventListener('click', async () => {
-  await AV.User.logOut();
+  await tcbAuth.signOut();
   showAuth();
 });
 
@@ -1498,10 +1493,9 @@ function hideAuth(email) {
 }
 
 // 检查登录状态
-AV.User.currentAsync().then(user => {
-  if (user) hideAuth(user.get('email'));
-  else showAuth();
-}).catch(() => showAuth());
+const tcbLoginState = await tcbAuth.getLoginState();
+if (tcbLoginState) hideAuth(tcbLoginState.user.email || '');
+else showAuth();
 
 // 注册 Service Worker（离线缓存）
 if ('serviceWorker' in navigator) {
