@@ -249,6 +249,7 @@ class ThreeDXMLParser {
     this.isUVR = false;       // UVR 二进制格式 → 用球体渲染
     this.is3MF = false;       // 3MF 格式
     this.mf3Data = null;      // 3MF 解析后的几何数据
+    this._cloneId = 1000000;  // 克隆节点唯一ID
   }
 
   // 检测文件是否为 ZIP 格式（PK 头）
@@ -425,11 +426,13 @@ class ThreeDXMLParser {
       const matrixStr = els[2]?.textContent || '1 0 0 0 1 0 0 0 1 0 0 0';
       const instanceName = el.getAttribute('name') || '';
       if (this.treeDict[aggregatedBy] && this.treeDict[instanceOf]) {
-        // 浅克隆：同一零件多实例时，每个实例保留独立的 label
         let childNode = this.treeDict[instanceOf];
         if (instanceName && instanceName !== childNode.label) {
+          // 浅克隆+唯一ID：每个实例独立标识，便于树节点点击准确定位
           childNode = Object.assign({}, childNode);
           childNode.label = instanceName;
+          childNode.id = this._cloneId++;
+          this.treeDict[childNode.id] = childNode;
         } else if (instanceName) {
           childNode.label = instanceName;
         }
