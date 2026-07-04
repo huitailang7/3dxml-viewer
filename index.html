@@ -103,6 +103,27 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
   <p id="loading-text">加载中...</p>
 </div>
 
+<!-- 登录遮罩 -->
+<div id="auth-overlay" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:100;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;transition:opacity 0.4s;">
+  <div style="text-align:center;color:var(--text);">
+    <div style="font-size:48px;margin-bottom:8px;">📂</div>
+    <div style="font-size:22px;font-weight:700;margin-bottom:4px;">3DXML 查看器</div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:24px;">请登录后使用</div>
+  </div>
+  <div id="auth-form" style="display:flex;flex-direction:column;gap:10px;width:280px;">
+    <input id="auth-email" type="email" placeholder="邮箱" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.06);color:var(--text);font-size:14px;outline:none;">
+    <input id="auth-pwd" type="password" placeholder="密码" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.06);color:var(--text);font-size:14px;outline:none;">
+    <div id="auth-err" style="color:var(--accent);font-size:12px;min-height:16px;"></div>
+    <button id="auth-login-btn" style="padding:10px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">登录</button>
+    <button id="auth-reg-btn" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:var(--text);font-size:14px;cursor:pointer;">注册新账号</button>
+  </div>
+  <div id="auth-user" style="display:none;text-align:center;color:var(--text);">
+    <div style="font-size:16px;margin-bottom:4px;">✅ 已登录</div>
+    <div id="auth-user-email" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
+    <button id="auth-logout-btn" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:var(--text2);font-size:13px;cursor:pointer;">退出登录</button>
+  </div>
+</div>
+
 <!-- 欢迎提示 -->
 <div id="welcome"><span class="icon">📂</span><span class="msg">点击右上角按钮</span><span class="sub">选择 .3dxml + .3DRep 文件查看模型</span></div>
 
@@ -131,6 +152,37 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 
 <!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
 <input type="file" id="file-input" accept=".3dxml,.3DXML,.3DRep,.3drep,.3mf,.3MF,.stp,.step" multiple style="display:none">
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, collection, addDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+// ═══════ 粘贴你的 firebaseConfig 到这里 ═══════
+const firebaseConfig = {
+  // TODO: 从 Firebase 控制台复制配置
+};
+// ═══════════════════════════════════════════
+
+const fbApp = initializeApp(firebaseConfig);
+const fbAuth = getAuth(fbApp);
+const fbDb = getFirestore(fbApp);
+
+// 全局引用
+window._fbAuth = fbAuth;
+window._fbDb = fbDb;
+window._fbLog = async (data) => {
+  try {
+    await addDoc(collection(fbDb, 'model_views'), {
+      uid: fbAuth.currentUser?.uid || 'unknown',
+      email: fbAuth.currentUser?.email || 'unknown',
+      ...data,
+      time: serverTimestamp()
+    });
+  } catch (e) { /* 静默失败 */ }
+};
+</script>
 
 <!-- JSZip -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -1130,6 +1182,18 @@ async function openFiles(fileList) {
 
     controls.update();
     showLoading(false);
+
+    // 记录使用统计
+    const statsFile = xmlFile || files[0];
+    if (window._fbLog && statsFile) {
+      window._fbLog({
+        file: statsFile.name,
+        size: Math.round(statsFile.size / 1024) + 'KB',
+        nodes: Object.keys(parser.treeDict).length,
+        refs: Object.keys(parser.repDict).length,
+        isTessellated: !parser.isUVR && !parser.is3MF
+      }).catch(() => {});
+    }
     const welcome = document.getElementById('welcome');
     if (parser.is3MF) {
       welcome.innerHTML = '<span class="icon">📐</span><span class="msg">3MF 模型</span><span class="sub">三角面片已加载</span>';
@@ -1356,6 +1420,89 @@ console.log('  🌳 点击左上角查看结构树');
 console.log('  👆 单指旋转 | 双指缩放/平移 | 双击聚焦零件');
 console.log('  ⌨  快捷键: F=适应视图 T=结构树 Esc=关闭面板 0=取消选中');
 console.log('  💡 如果模型无几何体，请同时多选 .3dxml 和 .3DRep 文件');
+// ═══════════════════════════════════════════════════
+// Firebase 认证逻辑
+// ═══════════════════════════════════════════════════
+const authOverlay = document.getElementById('auth-overlay');
+const authForm = document.getElementById('auth-form');
+const authUser = document.getElementById('auth-user');
+const authEmail = document.getElementById('auth-email');
+const authPwd = document.getElementById('auth-pwd');
+const authErr = document.getElementById('auth-err');
+const authLoginBtn = document.getElementById('auth-login-btn');
+const authRegBtn = document.getElementById('auth-reg-btn');
+const authLogoutBtn = document.getElementById('auth-logout-btn');
+const authUserEmail = document.getElementById('auth-user-email');
+
+// 显示错误
+function showAuthErr(msg) {
+  authErr.textContent = msg;
+  setTimeout(() => { authErr.textContent = ''; }, 4000);
+}
+
+// 登录
+authLoginBtn.addEventListener('click', async () => {
+  const email = authEmail.value.trim();
+  const pwd = authPwd.value;
+  if (!email || !pwd) { showAuthErr('请输入邮箱和密码'); return; }
+  try {
+    authLoginBtn.disabled = true;
+    authLoginBtn.textContent = '登录中...';
+    await signInWithEmailAndPassword(window._fbAuth, email, pwd);
+  } catch (e) {
+    showAuthErr(e.code === 'auth/invalid-credential' ? '邮箱或密码错误' : e.message);
+  } finally {
+    authLoginBtn.disabled = false;
+    authLoginBtn.textContent = '登录';
+  }
+});
+
+// 注册
+authRegBtn.addEventListener('click', async () => {
+  const email = authEmail.value.trim();
+  const pwd = authPwd.value;
+  if (!email || !pwd) { showAuthErr('请输入邮箱和密码'); return; }
+  if (pwd.length < 6) { showAuthErr('密码至少6位'); return; }
+  try {
+    authRegBtn.disabled = true;
+    authRegBtn.textContent = '注册中...';
+    await createUserWithEmailAndPassword(window._fbAuth, email, pwd);
+  } catch (e) {
+    showAuthErr(e.code === 'auth/email-already-in-use' ? '该邮箱已注册' : e.message);
+  } finally {
+    authRegBtn.disabled = false;
+    authRegBtn.textContent = '注册新账号';
+  }
+});
+
+// 退出
+authLogoutBtn.addEventListener('click', async () => {
+  await signOut(window._fbAuth);
+});
+
+// 回车登录
+authPwd.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') authLoginBtn.click();
+});
+
+// 监听登录状态
+onAuthStateChanged(window._fbAuth, (user) => {
+  if (user) {
+    authForm.style.display = 'none';
+    authUser.style.display = 'block';
+    authUserEmail.textContent = user.email;
+    setTimeout(() => {
+      authOverlay.style.opacity = '0';
+      setTimeout(() => { authOverlay.style.display = 'none'; }, 400);
+    }, 600);
+  } else {
+    authForm.style.display = 'flex';
+    authUser.style.display = 'none';
+    authOverlay.style.display = 'flex';
+    authOverlay.style.opacity = '1';
+  }
+});
+
 // 注册 Service Worker（离线缓存）
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch(() => {});
