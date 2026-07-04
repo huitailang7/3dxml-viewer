@@ -1186,6 +1186,31 @@ fileInput.addEventListener('change', (e) => {
 document.getElementById('btn-tree').addEventListener('click', openTreePanel);
 document.getElementById('btn-tree-close').addEventListener('click', closeTreePanel);
 
+// 结构树面板滑动手势（单指左右滑移动面板）
+(function() {
+  const panel = document.getElementById('tree-panel');
+  let swipeStartX = 0, swipeStartLeft = 0, swiping = false;
+  panel.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button,input,.tree-resizer')) return;
+    swipeStartX = e.touches[0].clientX;
+    swipeStartLeft = parseFloat(panel.style.left) || 0;
+    swiping = true;
+  }, { passive: false });
+  panel.addEventListener('touchmove', (e) => {
+    if (!swiping) return;
+    const dx = e.touches[0].clientX - swipeStartX;
+    panel.style.transition = 'none';
+    panel.style.transform = `translateX(${Math.max(-50, Math.min(50, swipeStartLeft + dx))}px)`;
+    e.preventDefault();
+  }, { passive: false });
+  panel.addEventListener('touchend', () => {
+    swiping = false;
+    panel.style.transition = 'transform 0.25s ease';
+    panel.style.transform = 'translateX(0)';
+    panel.style.left = '0';
+  });
+})();
+
 // 结构树宽度拖拽调整
 (function() {
   const resizer = document.getElementById('tree-resizer');
