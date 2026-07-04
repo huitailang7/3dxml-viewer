@@ -156,18 +156,18 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 <!-- 腾讯云 CloudBase SDK -->
 <script src="https://imgcache.qq.com/qcloud/cloudbase-js-sdk/2.1.0/cloudbase.full.js"></script>
 <script>
-// ═══════ 粘贴你的 CloudBase 环境ID ═══════
 const TCB_ENV = 'spark-d0gzk5fmq10e2d6e8';
-// ═══════════════════════════════════════════
+const IS_LOCAL = location.protocol === 'file:';
 
-const tcbApp = cloudbase.init({ env: TCB_ENV });
-const tcbAuth = tcbApp.auth();
-const tcbDb = tcbApp.database();
-
-// 统计记录
+let _tcb = null;
+if (!IS_LOCAL && typeof cloudbase !== 'undefined') {
+  _tcb = cloudbase.init({ env: TCB_ENV });
+}
+window._tcbApp = _tcb;
 window._tcbLog = async (data) => {
+  if (!_tcb) return;
   try {
-    await tcbDb.collection('model_views').add(data);
+    await _tcb.database().collection('model_views').add(data);
   } catch (e) { /* 静默 */ }
 };
 </script>
@@ -1174,9 +1174,13 @@ async function openFiles(fileList) {
     // 记录使用统计
     const statsFile = xmlFile || files[0];
     if (window._tcbLog && statsFile) {
-      const loginState = await tcbAuth.getLoginState();
+      const app = window._tcbApp;
+      let email = 'unknown';
+      if (app) {
+        try { const st = await app.auth().getLoginState(); email = st?.user?.email || 'unknown'; } catch(e) {}
+      }
       window._tcbLog({
-        email: loginState?.user?.email || 'unknown',
+        email: email,
         file: statsFile.name,
         sizeKB: Math.round(statsFile.size / 1024),
         nodes: Object.keys(parser.treeDict).length,
@@ -1429,6 +1433,11 @@ function showAuthErr(msg) {
   setTimeout(() => { authErr.textContent = ''; }, 4000);
 }
 
+// 本地开发直接跳过登录
+if (IS_LOCAL) {
+  authOverlay.style.display = 'none';
+} else {
+
 // 登录
 authLoginBtn.addEventListener('click', async () => {
   const email = authEmail.value.trim();
@@ -1437,7 +1446,7 @@ authLoginBtn.addEventListener('click', async () => {
   try {
     authLoginBtn.disabled = true;
     authLoginBtn.textContent = '登录中...';
-    await tcbAuth.signInWithEmailAndPassword(email, pwd);
+    await _tcb.auth().signInWithEmailAndPassword(email, pwd);
   } catch (e) {
     showAuthErr(e.message || '登录失败');
   } finally {
@@ -1455,7 +1464,7 @@ authRegBtn.addEventListener('click', async () => {
   try {
     authRegBtn.disabled = true;
     authRegBtn.textContent = '注册中...';
-    await tcbAuth.signUpWithEmailAndPassword(email, pwd);
+    await _tcb.auth().signUpWithEmailAndPassword(email, pwd);
   } catch (e) {
     showAuthErr(e.message || '注册失败');
   } finally {
@@ -1466,7 +1475,7 @@ authRegBtn.addEventListener('click', async () => {
 
 // 退出
 authLogoutBtn.addEventListener('click', async () => {
-  await tcbAuth.signOut();
+  await _tcb.auth().signOut();
   showAuth();
 });
 
@@ -1493,9 +1502,11 @@ function hideAuth(email) {
 }
 
 // 检查登录状态
-const tcbLoginState = await tcbAuth.getLoginState();
+const tcbLoginState = await _tcb.auth().getLoginState();
 if (tcbLoginState) hideAuth(tcbLoginState.user.email || '');
 else showAuth();
+
+} // end IS_LOCAL check
 
 // 注册 Service Worker（离线缓存）
 if ('serviceWorker' in navigator) {
