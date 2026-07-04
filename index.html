@@ -70,6 +70,12 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 .tree-children { overflow:hidden; transition:max-height 0.25s ease; }
 .tree-children.collapsed { max-height:0 !important; }
 
+/* 滑动开关 */
+.toggle-switch { position:relative; display:inline-block; width:36px; height:20px; background:rgba(255,255,255,0.15); border-radius:10px; transition:background 0.25s; }
+.toggle-switch .toggle-knob { position:absolute; top:2px; left:2px; width:16px; height:16px; background:#fff; border-radius:50%; transition:transform 0.25s; }
+#chk-follow:checked + .toggle-switch { background:var(--accent); }
+#chk-follow:checked + .toggle-switch .toggle-knob { transform:translateX(16px); }
+
 /* 遮罩 */
 #overlay { position:fixed; top:0; left:0; width:100%; height:100%; z-index:14; background:rgba(0,0,0,0.3); display:none; pointer-events:none; }
 #overlay.show { display:block; pointer-events:auto; }
@@ -83,10 +89,6 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 <!-- 顶栏 -->
 <div id="toolbar">
   <button id="btn-tree" title="结构树">🌳</button>
-  <label id="lbl-follow" title="视觉跟随" style="display:flex;align-items:center;gap:4px;color:var(--text);font-size:11px;cursor:pointer;pointer-events:auto;white-space:nowrap;">
-    <input type="checkbox" id="chk-follow" checked style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer;">
-    <span>视觉跟随</span>
-  </label>
   <span class="title" id="title-text">3DXML 查看器</span>
   <button id="btn-open" title="打开文件">📂</button>
   <button id="btn-fit" title="适应视图">🔍</button>
@@ -101,6 +103,13 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 
 <!-- 欢迎提示 -->
 <div id="welcome"><span class="icon">📂</span><span class="msg">点击右上角按钮</span><span class="sub">选择 .3dxml + .3DRep 文件查看模型</span></div>
+
+<!-- 视觉跟随滑动开关（右上角） -->
+<label id="lbl-follow" style="position:fixed;top:16px;right:16px;z-index:11;display:flex;align-items:center;gap:6px;color:var(--text);font-size:12px;cursor:pointer;background:var(--panel);padding:6px 10px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);pointer-events:auto;user-select:none;">
+  <span>视觉跟随</span>
+  <input type="checkbox" id="chk-follow" checked style="position:absolute;opacity:0;width:0;height:0;">
+  <span class="toggle-switch"><span class="toggle-knob"></span></span>
+</label>
 
 <!-- 底部手势提示 -->
 <div id="gesture-hint">👆 单指旋转 &nbsp;👆👆 双指缩放/平移 &nbsp;👆👆 双击聚焦</div>
