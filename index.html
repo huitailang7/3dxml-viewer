@@ -51,8 +51,10 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 #loading p { margin-top:16px; color:var(--text); font-size:14px; }
 
 /* 结构树侧边栏 */
-#tree-panel { position:fixed; top:0; left:0; width:300px; max-width:80vw; height:100%; z-index:15; background:var(--panel); transform:translateX(-100%); transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); display:flex; flex-direction:column; box-shadow:2px 0 16px rgba(0,0,0,0.4); }
+#tree-panel { position:fixed; top:0; left:0; width:320px; min-width:220px; max-width:85vw; height:100%; z-index:15; background:var(--panel); transform:translateX(-100%); transition:transform 0.3s cubic-bezier(0.4,0,0.2,1); display:flex; flex-direction:column; box-shadow:2px 0 16px rgba(0,0,0,0.4); }
 #tree-panel.open { transform:translateX(0); }
+.tree-resizer { position:absolute; top:0; right:0; width:6px; height:100%; cursor:ew-resize; z-index:2; }
+.tree-resizer:hover, .tree-resizer.active { background:var(--accent); }
 #tree-panel .head { padding:16px 14px 12px; border-bottom:1px solid rgba(255,255,255,0.08); display:flex; align-items:center; gap:8px; flex-shrink:0; }
 #tree-panel .head span { flex:1; color:var(--text); font-size:15px; font-weight:600; }
 #tree-panel .head button { width:32px; height:32px; border-radius:8px; border:none; background:rgba(255,255,255,0.08); color:var(--text); font-size:16px; cursor:pointer; }
@@ -124,6 +126,7 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
     <button id="btn-tree-close">✕</button>
   </div>
   <div id="tree-list"></div>
+  <div class="tree-resizer" id="tree-resizer"></div>
 </div>
 
 <!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
@@ -1172,6 +1175,29 @@ fileInput.addEventListener('change', (e) => {
 // 结构树按钮
 document.getElementById('btn-tree').addEventListener('click', openTreePanel);
 document.getElementById('btn-tree-close').addEventListener('click', closeTreePanel);
+
+// 结构树宽度拖拽调整
+(function() {
+  const resizer = document.getElementById('tree-resizer');
+  const panel = document.getElementById('tree-panel');
+  let startX, startW;
+  resizer.addEventListener('pointerdown', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    startX = e.clientX; startW = panel.offsetWidth;
+    resizer.classList.add('active');
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+  });
+  function onMove(e) {
+    const w = Math.max(220, Math.min(startW + e.clientX - startX, window.innerWidth * 0.85));
+    panel.style.width = w + 'px';
+  }
+  function onUp() {
+    resizer.classList.remove('active');
+    document.removeEventListener('pointermove', onMove);
+    document.removeEventListener('pointerup', onUp);
+  }
+})();
 
 // 适应视图按钮
 document.getElementById('btn-fit').addEventListener('click', () => {
