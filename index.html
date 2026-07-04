@@ -825,8 +825,9 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
         mesh.userData = { treeNodeId: treeNode.id, partName: leafPart.name };
         group.add(mesh);
       }
-      // 始终映射到 group（包含该节点所有mesh），而非单个mesh
-      if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, group);
+      // 映射到 group 数组（同一零件可能被多次实例化）
+      if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, []);
+      entityMap.get(treeNode.id).push(group);
     }
   } else {
     // 非叶子：递归处理子节点
@@ -845,9 +846,8 @@ function buildModelFromTree(treeNode, parser, parentGroup, parentTransform, path
 
   group.userData = { treeNodeId: treeNode.id, name: treeNode.name, path: currentPath };
   parentGroup.add(group);
-  if (!entityMap.has(treeNode.id)) {
-    entityMap.set(treeNode.id, group);
-  }
+  if (!entityMap.has(treeNode.id)) entityMap.set(treeNode.id, []);
+  entityMap.get(treeNode.id).push(group);
 }
 
 // ═══════════════════════════════════════════════════
@@ -877,8 +877,8 @@ function buildTreeUI(node, container, depth = 0) {
   check.title = '显示/隐藏';
   check.addEventListener('click', (e) => {
     e.stopPropagation();
-    const target = entityMap.get(node.id);
-    if (target) target.visible = check.checked;
+    const targets = entityMap.get(node.id);
+    if (targets) targets.forEach(t => t.visible = check.checked);
   });
   nodeDiv.appendChild(check);
 
@@ -942,16 +942,17 @@ function selectTreeNode(nodeId, nodeDiv) {
   if (nodeDiv) nodeDiv.classList.add('selected');
   selectedNodeId = nodeId;
 
-  const obj = entityMap.get(nodeId);
-  if (!obj) { console.warn('selectTreeNode: entityMap未找到 id=' + nodeId); return; }
+  const objs = entityMap.get(nodeId);
+  if (!objs || objs.length === 0) { console.warn('selectTreeNode: entityMap未找到 id=' + nodeId); return; }
 
   // 先刷新世界矩阵（group 可能 matrixAutoUpdate=false）
   scene.updateMatrixWorld();
 
-  // 聚焦相机到对象（视觉跟随激活时才移动）
+  // 聚焦相机到对象（视觉跟随激活时才移动，合并所有实例包围盒）
   const follow = document.getElementById('chk-follow');
   if (follow && follow.checked) {
-    const bbox = new THREE.Box3().setFromObject(obj);
+    const bbox = new THREE.Box3();
+    for (const obj of objs) bbox.expandByObject(obj);
     if (!bbox.isEmpty()) {
     const center = new THREE.Vector3();
     bbox.getCenter(center);
@@ -987,21 +988,23 @@ function selectTreeNode(nodeId, nodeDiv) {
     }
   }
 
-  // 添加高亮叠加层
-  obj.traverse((child) => {
-    if (child.isMesh) {
-      const hlMesh = new THREE.Mesh(child.geometry, highlightMaterial.clone());
-      hlMesh.position.copy(child.position);
-      hlMesh.rotation.copy(child.rotation);
-      hlMesh.scale.copy(child.scale);
-      hlMesh.matrixAutoUpdate = false;
-      hlMesh.matrix.copy(child.matrixWorld);
-      hlMesh.renderOrder = 999;
-      hlMesh.material.depthTest = true;
-      scene.add(hlMesh);
-      highlightMeshes.push(hlMesh);
-    }
-  });
+  // 添加高亮叠加层（所有实例）
+  for (const obj of objs) {
+    obj.traverse((child) => {
+      if (child.isMesh) {
+        const hlMesh = new THREE.Mesh(child.geometry, highlightMaterial.clone());
+        hlMesh.position.copy(child.position);
+        hlMesh.rotation.copy(child.rotation);
+        hlMesh.scale.copy(child.scale);
+        hlMesh.matrixAutoUpdate = false;
+        hlMesh.matrix.copy(child.matrixWorld);
+        hlMesh.renderOrder = 999;
+        hlMesh.material.depthTest = true;
+        scene.add(hlMesh);
+        highlightMeshes.push(hlMesh);
+      }
+    });
+  }
 
 
 }
