@@ -108,14 +108,13 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
   <div style="text-align:center;color:var(--text);">
     <div style="font-size:48px;margin-bottom:8px;">📂</div>
     <div style="font-size:22px;font-weight:700;margin-bottom:4px;">3DXML 查看器</div>
-    <div style="font-size:13px;color:var(--text2);margin-bottom:24px;">请登录后使用</div>
-    <button id="auth-login-btn" style="padding:12px 32px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:15px;font-weight:600;cursor:pointer;">点击登录</button>
-    <div id="auth-user" style="display:none;text-align:center;color:var(--text);margin-top:16px;">
-      <div style="font-size:16px;margin-bottom:4px;">✅ 已登录</div>
-      <div id="auth-user-email" style="font-size:13px;color:var(--text2);margin-bottom:12px;"></div>
-      <button id="auth-logout-btn" style="padding:8px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:var(--text2);font-size:13px;cursor:pointer;">退出登录</button>
-    </div>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:20px;">请输入密码</div>
   </div>
+  <div style="display:flex;gap:8px;">
+    <input id="auth-pwd" type="password" placeholder="密码" style="padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.06);color:var(--text);font-size:14px;outline:none;width:200px;">
+    <button id="auth-login-btn" style="padding:10px 20px;border-radius:8px;border:none;background:var(--accent);color:#fff;font-size:14px;font-weight:600;cursor:pointer;">登录</button>
+  </div>
+  <div id="auth-err" style="color:var(--accent);font-size:12px;min-height:20px;margin-top:8px;"></div>
 </div>
 
 <!-- 欢迎提示 -->
@@ -147,23 +146,11 @@ html, body { width:100%; height:100%; overflow:hidden; background:var(--bg); fon
 <!-- 隐藏的文件选择器：支持多选（3dxml + 3DRep） -->
 <input type="file" id="file-input" accept=".3dxml,.3DXML,.3DRep,.3drep,.3mf,.3MF,.stp,.step" multiple style="display:none">
 
-<!-- 腾讯云 CloudBase SDK -->
-<script src="https://cdn.jsdelivr.net/npm/@cloudbase/js-sdk@2.1.0/cloudbase.full.js"></script>
 <script>
-const TCB_ENV = 'spark-d0gzk5fmq10e2d6e8';
+// ═══════ 修改登录密码 ═══════
+const AUTH_PASSWORD = 'admin123';
+// ═════════════════════════════
 const IS_LOCAL = location.protocol === 'file:';
-
-let _tcb = null;
-if (!IS_LOCAL && typeof cloudbase !== 'undefined') {
-  _tcb = cloudbase.init({ env: TCB_ENV });
-}
-window._tcbApp = _tcb;
-window._tcbLog = async (data) => {
-  if (!_tcb) return;
-  try {
-    await _tcb.database().collection('model_views').add(data);
-  } catch (e) { /* 静默 */ }
-};
 </script>
 
 <!-- JSZip -->
@@ -1165,22 +1152,6 @@ async function openFiles(fileList) {
     controls.update();
     showLoading(false);
 
-    // 记录使用统计
-    const statsFile = xmlFile || files[0];
-    if (window._tcbLog && statsFile) {
-      const app = window._tcbApp;
-      let email = 'unknown';
-      if (app) {
-        try { const st = await app.auth().getLoginState(); email = st?.user?.email || 'unknown'; } catch(e) {}
-      }
-      window._tcbLog({
-        email: email,
-        file: statsFile.name,
-        sizeKB: Math.round(statsFile.size / 1024),
-        nodes: Object.keys(parser.treeDict).length,
-        refs: Object.keys(parser.repDict).length
-      }).catch(() => {});
-    }
     const welcome = document.getElementById('welcome');
     if (parser.is3MF) {
       welcome.innerHTML = '<span class="icon">📐</span><span class="msg">3MF 模型</span><span class="sub">三角面片已加载</span>';
@@ -1408,55 +1379,31 @@ console.log('  👆 单指旋转 | 双指缩放/平移 | 双击聚焦零件');
 console.log('  ⌨  快捷键: F=适应视图 T=结构树 Esc=关闭面板 0=取消选中');
 console.log('  💡 如果模型无几何体，请同时多选 .3dxml 和 .3DRep 文件');
 // ═══════════════════════════════════════════════════
-// CloudBase 认证（使用自带登录页）
+// 简单密码验证
 // ═══════════════════════════════════════════════════
 const authOverlay = document.getElementById('auth-overlay');
 const authLoginBtn = document.getElementById('auth-login-btn');
-const authUser = document.getElementById('auth-user');
-const authLogoutBtn = document.getElementById('auth-logout-btn');
-const authUserEmail = document.getElementById('auth-user-email');
-
-function showAuth() {
-  authLoginBtn.parentElement.style.display = 'block';
-  authUser.style.display = 'none';
-  authOverlay.style.display = 'flex';
-  authOverlay.style.opacity = '1';
-}
-function hideAuth(email) {
-  authLoginBtn.parentElement.style.display = 'none';
-  authUser.style.display = 'block';
-  authUserEmail.textContent = email;
-  setTimeout(() => {
-    authOverlay.style.opacity = '0';
-    setTimeout(() => { authOverlay.style.display = 'none'; }, 400);
-  }, 400);
-}
+const authPwd = document.getElementById('auth-pwd');
+const authErr = document.getElementById('auth-err');
 
 if (IS_LOCAL) {
   authOverlay.style.display = 'none';
 } else {
-  // 点击登录 → 跳转 CloudBase 自带登录页
   authLoginBtn.addEventListener('click', () => {
-    const redirect = encodeURIComponent(location.href);
-    location.href = `https://${TCB_ENV}.tcloudbaseapp.com/__auth/?redirect=${redirect}`;
-  });
-
-  // 退出
-  authLogoutBtn.addEventListener('click', async () => {
-    await _tcb.auth().signOut();
-    showAuth();
-  });
-
-  // 检查是否从登录页跳回
-  const tcbLoginState = _tcb ? await _tcb.auth().getLoginState() : null;
-  if (tcbLoginState) {
-    hideAuth(tcbLoginState.user?.email || '');
-    // 清除URL中的登录参数
-    if (location.hash.includes('access_token')) {
-      history.replaceState(null, '', location.pathname);
+    if (authPwd.value === AUTH_PASSWORD) {
+      localStorage.setItem('_auth', '1');
+      authOverlay.style.opacity = '0';
+      setTimeout(() => { authOverlay.style.display = 'none'; }, 400);
+    } else {
+      authErr.textContent = '密码错误';
     }
-  } else {
-    showAuth();
+  });
+  authPwd.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') authLoginBtn.click();
+  });
+  // 已登录则跳过
+  if (localStorage.getItem('_auth') === '1') {
+    authOverlay.style.display = 'none';
   }
 }
 
